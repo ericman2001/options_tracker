@@ -39,6 +39,12 @@ pub struct App {
     pub reports: Vec<(String, f64, i32)>,
 }
 
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl App {
     pub fn new() -> Self {
         App {
@@ -109,8 +115,8 @@ impl App {
     }
 }
 
-impl Trade {
-    pub fn default() -> Self {
+impl Default for Trade {
+    fn default() -> Self {
         Trade {
             id: None,
             symbol: String::new(),
@@ -142,7 +148,7 @@ pub fn render_main_menu(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
 
-    let menu_items = vec![
+    let menu_items = [
         "Add New Trade",
         "View/Edit Trades",
         "View Reports",

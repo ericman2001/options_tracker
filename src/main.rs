@@ -1,5 +1,5 @@
-mod db;
-mod ui;
+use options_tracker::db::{Database, Trade};
+use options_tracker::ui::{App, Screen, InputField};
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -11,8 +11,6 @@ use ratatui::{
     Terminal,
 };
 use std::io;
-use db::Database;
-use ui::{App, Screen, InputField};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize database
@@ -53,7 +51,7 @@ fn run_app<B: ratatui::backend::Backend>(
     db: &Database,
 ) -> io::Result<()> {
     loop {
-        terminal.draw(|f| ui::render(f, app))?;
+        terminal.draw(|f| options_tracker::ui::render(f, app))?;
 
         if let Event::Key(key) = event::read()? {
             match app.current_screen {
@@ -66,7 +64,7 @@ fn run_app<B: ratatui::backend::Backend>(
                             match app.selected_menu_item {
                                 0 => {
                                     app.current_screen = Screen::AddTrade;
-                                    app.current_trade = db::Trade::default();
+                                    app.current_trade = Trade::default();
                                     app.current_input_field = InputField::Symbol;
                                     app.input_buffer.clear();
                                     app.message = None;
@@ -177,11 +175,8 @@ fn run_app<B: ratatui::backend::Backend>(
                     }
                 }
                 Screen::Reports => {
-                    match key.code {
-                        KeyCode::Esc => {
-                            app.current_screen = Screen::MainMenu;
-                        }
-                        _ => {}
+                    if key.code == KeyCode::Esc {
+                        app.current_screen = Screen::MainMenu;
                     }
                 }
             }
@@ -238,7 +233,7 @@ fn update_current_field(app: &mut App) {
     }
 }
 
-fn validate_trade(trade: &db::Trade) -> bool {
+fn validate_trade(trade: &Trade) -> bool {
     !trade.symbol.is_empty()
         && (trade.trade_type == "stock" || trade.trade_type == "option")
         && (trade.action == "buy" || trade.action == "sell")

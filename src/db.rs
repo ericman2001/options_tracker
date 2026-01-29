@@ -13,6 +13,22 @@ pub struct Trade {
     pub comment: String,
 }
 
+impl Default for Trade {
+    fn default() -> Self {
+        Trade {
+            id: None,
+            symbol: String::new(),
+            trade_type: String::from("stock"),
+            action: String::from("buy"),
+            price: 0.0,
+            quantity: 0.0,
+            date: String::new(),
+            fees: 0.0,
+            comment: String::new(),
+        }
+    }
+}
+
 pub struct Database {
     conn: Connection,
 }

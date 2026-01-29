@@ -1,418 +1,316 @@
-use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Row, Table, Wrap},
-    Frame,
-};
-use crate::db::Trade;
+use cursive::views::{Dialog, TextView, SelectView, EditView, ListView};
+use cursive::traits::*;
+use cursive::Cursive;
+use cursive::align::HAlign;
+use cursive::theme::{Color, PaletteColor};
+use crate::db::{Database, Trade};
+use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Screen {
-    MainMenu,
-    AddTrade,
-    ViewTrades,
-    EditTrade,
-    Reports,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum InputField {
-    Symbol,
-    TradeType,
-    Action,
-    Price,
-    Quantity,
-    Date,
-    Fees,
-    Comment,
-}
-
-pub struct App {
-    pub current_screen: Screen,
-    pub selected_menu_item: usize,
-    pub selected_trade_index: usize,
-    pub trades: Vec<Trade>,
-    pub current_trade: Trade,
-    pub current_input_field: InputField,
-    pub input_buffer: String,
-    pub message: Option<String>,
-    pub reports: Vec<(String, f64, i32)>,
-}
-
-impl Default for App {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl App {
-    pub fn new() -> Self {
-        App {
-            current_screen: Screen::MainMenu,
-            selected_menu_item: 0,
-            selected_trade_index: 0,
-            trades: Vec::new(),
-            current_trade: Trade::default(),
-            current_input_field: InputField::Symbol,
-            input_buffer: String::new(),
-            message: None,
-            reports: Vec::new(),
-        }
-    }
-
-    pub fn next_menu_item(&mut self) {
-        self.selected_menu_item = (self.selected_menu_item + 1) % 4;
-    }
-
-    pub fn previous_menu_item(&mut self) {
-        if self.selected_menu_item == 0 {
-            self.selected_menu_item = 3;
-        } else {
-            self.selected_menu_item -= 1;
-        }
-    }
-
-    pub fn next_field(&mut self) {
-        self.current_input_field = match self.current_input_field {
-            InputField::Symbol => InputField::TradeType,
-            InputField::TradeType => InputField::Action,
-            InputField::Action => InputField::Price,
-            InputField::Price => InputField::Quantity,
-            InputField::Quantity => InputField::Date,
-            InputField::Date => InputField::Fees,
-            InputField::Fees => InputField::Comment,
-            InputField::Comment => InputField::Symbol,
-        };
-    }
-
-    pub fn previous_field(&mut self) {
-        self.current_input_field = match self.current_input_field {
-            InputField::Symbol => InputField::Comment,
-            InputField::TradeType => InputField::Symbol,
-            InputField::Action => InputField::TradeType,
-            InputField::Price => InputField::Action,
-            InputField::Quantity => InputField::Price,
-            InputField::Date => InputField::Quantity,
-            InputField::Fees => InputField::Date,
-            InputField::Comment => InputField::Fees,
-        };
-    }
-
-    pub fn next_trade(&mut self) {
-        if !self.trades.is_empty() {
-            self.selected_trade_index = (self.selected_trade_index + 1) % self.trades.len();
-        }
-    }
-
-    pub fn previous_trade(&mut self) {
-        if !self.trades.is_empty() {
-            if self.selected_trade_index == 0 {
-                self.selected_trade_index = self.trades.len() - 1;
-            } else {
-                self.selected_trade_index -= 1;
-            }
-        }
-    }
-}
-
-impl Default for Trade {
-    fn default() -> Self {
-        Trade {
-            id: None,
-            symbol: String::new(),
-            trade_type: String::from("stock"),
-            action: String::from("buy"),
-            price: 0.0,
-            quantity: 0.0,
-            date: String::new(),
-            fees: 0.0,
-            comment: String::new(),
-        }
-    }
-}
-
-pub fn render_main_menu(f: &mut Frame, app: &App) {
-    let area = f.size();
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(area);
-
-    let title = Paragraph::new("Stock Options Tracker")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    let menu_items = [
-        "Add New Trade",
-        "View/Edit Trades",
-        "View Reports",
-        "Quit",
-    ];
-
-    let items: Vec<ListItem> = menu_items
-        .iter()
-        .enumerate()
-        .map(|(i, &item)| {
-            let style = if i == app.selected_menu_item {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(item).style(style)
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Main Menu"));
-    f.render_widget(list, chunks[1]);
-
-    let help = Paragraph::new("↑/↓: Navigate | Enter: Select | q: Quit")
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
-}
-
-pub fn render_add_trade(f: &mut Frame, app: &App) {
-    let area = f.size();
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(area);
-
-    let title = Paragraph::new("Add New Trade")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    let form_area = chunks[1];
-    let form_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(5),
-        ])
-        .split(form_area);
-
-    let fields = [
-        ("Symbol", &app.current_trade.symbol, InputField::Symbol),
-        ("Type (stock/option)", &app.current_trade.trade_type, InputField::TradeType),
-        ("Action (buy/sell)", &app.current_trade.action, InputField::Action),
-        ("Price", &format!("{:.2}", app.current_trade.price), InputField::Price),
-        ("Quantity", &format!("{:.2}", app.current_trade.quantity), InputField::Quantity),
-        ("Date (YYYY-MM-DD)", &app.current_trade.date, InputField::Date),
-        ("Fees", &format!("{:.2}", app.current_trade.fees), InputField::Fees),
-    ];
-
-    for (i, (label, value, field)) in fields.iter().enumerate() {
-        let is_selected = *field == app.current_input_field;
-        let style = if is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-
-        let display_value = if is_selected && !app.input_buffer.is_empty() {
-            &app.input_buffer
-        } else {
-            value
-        };
-
-        let text = format!("{}: {}", label, display_value);
-        let paragraph = Paragraph::new(text)
-            .style(style)
-            .block(Block::default().borders(Borders::ALL));
-        f.render_widget(paragraph, form_chunks[i]);
-    }
-
-    // Comment field
-    let is_selected = app.current_input_field == InputField::Comment;
-    let style = if is_selected {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-
-    let display_value = if is_selected && !app.input_buffer.is_empty() {
-        &app.input_buffer
-    } else {
-        &app.current_trade.comment
-    };
-
-    let comment_text = format!("Comment: {}", display_value);
-    let comment = Paragraph::new(comment_text)
-        .style(style)
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: true });
-    f.render_widget(comment, form_chunks[7]);
-
-    let help_text = if let Some(msg) = &app.message {
-        msg.clone()
-    } else {
-        "Tab/Shift+Tab: Navigate | Type to edit | Enter: Save | Esc: Cancel".to_string()
-    };
+pub fn run_ui(db: Database) {
+    let db = Arc::new(Mutex::new(db));
+    let mut siv = cursive::default();
     
-    let help = Paragraph::new(help_text)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
+    // Set up theme
+    let mut theme = siv.current_theme().clone();
+    theme.palette[PaletteColor::Background] = Color::TerminalDefault;
+    theme.palette[PaletteColor::View] = Color::TerminalDefault;
+    siv.set_theme(theme);
+    
+    show_main_menu(&mut siv, db);
+    
+    siv.run();
 }
 
-pub fn render_view_trades(f: &mut Frame, app: &App) {
-    let area = f.size();
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(area);
+fn show_main_menu(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
+    siv.pop_layer();
+    
+    let mut select = SelectView::new()
+        .h_align(HAlign::Center);
+    
+    select.add_item("Add New Trade", 1);
+    select.add_item("View/Edit Trades", 2);
+    select.add_item("View Reports", 3);
+    select.add_item("Quit", 4);
+    
+    let db_clone = db.clone();
+    select.set_on_submit(move |s, item: &i32| {
+        match item {
+            1 => show_add_trade(s, db_clone.clone(), None),
+            2 => show_view_trades(s, db_clone.clone()),
+            3 => show_reports(s, db_clone.clone()),
+            4 => s.quit(),
+            _ => {}
+        }
+    });
+    
+    siv.add_layer(
+        Dialog::around(select.scrollable().fixed_size((40, 10)))
+            .title("Stock Options Tracker")
+            .button("Quit", |s| s.quit())
+    );
+}
 
-    let title = Paragraph::new("View/Edit Trades")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
+fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Trade>) {
+    let is_edit = trade.is_some();
+    let title = if is_edit { "Edit Trade" } else { "Add New Trade" };
+    
+    let trade = trade.unwrap_or_default();
+    
+    let form = ListView::new()
+        .child("Symbol:", EditView::new()
+            .content(trade.symbol.clone())
+            .with_name("symbol")
+            .fixed_width(20))
+        .child("Type (stock/option):", EditView::new()
+            .content(trade.trade_type.clone())
+            .with_name("trade_type")
+            .fixed_width(20))
+        .child("Action (buy/sell):", EditView::new()
+            .content(trade.action.clone())
+            .with_name("action")
+            .fixed_width(20))
+        .child("Price:", EditView::new()
+            .content(if trade.price > 0.0 { format!("{:.2}", trade.price) } else { String::new() })
+            .with_name("price")
+            .fixed_width(20))
+        .child("Quantity:", EditView::new()
+            .content(if trade.quantity > 0.0 { format!("{:.2}", trade.quantity) } else { String::new() })
+            .with_name("quantity")
+            .fixed_width(20))
+        .child("Date (YYYY-MM-DD):", EditView::new()
+            .content(trade.date.clone())
+            .with_name("date")
+            .fixed_width(20))
+        .child("Fees:", EditView::new()
+            .content(if trade.fees > 0.0 { format!("{:.2}", trade.fees) } else { String::new() })
+            .with_name("fees")
+            .fixed_width(20))
+        .child("Comment:", EditView::new()
+            .content(trade.comment.clone())
+            .with_name("comment")
+            .fixed_width(20));
+    
+    let trade_id = trade.id;
+    let db_clone = db.clone();
+    
+    siv.add_layer(
+        Dialog::around(form.scrollable().fixed_size((50, 20)))
+            .title(title)
+            .button("Save", move |s| {
+                let symbol = s.call_on_name("symbol", |view: &mut EditView| {
+                    view.get_content().to_string().to_uppercase()
+                }).unwrap_or_default();
+                
+                let trade_type = s.call_on_name("trade_type", |view: &mut EditView| {
+                    view.get_content().to_string().to_lowercase()
+                }).unwrap_or_default();
+                
+                let action = s.call_on_name("action", |view: &mut EditView| {
+                    view.get_content().to_string().to_lowercase()
+                }).unwrap_or_default();
+                
+                let price_str = s.call_on_name("price", |view: &mut EditView| {
+                    view.get_content().to_string()
+                }).unwrap_or_default();
+                
+                let quantity_str = s.call_on_name("quantity", |view: &mut EditView| {
+                    view.get_content().to_string()
+                }).unwrap_or_default();
+                
+                let date = s.call_on_name("date", |view: &mut EditView| {
+                    view.get_content().to_string()
+                }).unwrap_or_default();
+                
+                let fees_str = s.call_on_name("fees", |view: &mut EditView| {
+                    view.get_content().to_string()
+                }).unwrap_or_default();
+                
+                let comment = s.call_on_name("comment", |view: &mut EditView| {
+                    view.get_content().to_string()
+                }).unwrap_or_default();
+                
+                // Validate inputs
+                if symbol.is_empty() {
+                    s.add_layer(Dialog::info("Symbol is required"));
+                    return;
+                }
+                
+                if trade_type != "stock" && trade_type != "option" {
+                    s.add_layer(Dialog::info("Type must be 'stock' or 'option'"));
+                    return;
+                }
+                
+                if action != "buy" && action != "sell" {
+                    s.add_layer(Dialog::info("Action must be 'buy' or 'sell'"));
+                    return;
+                }
+                
+                let price = match price_str.parse::<f64>() {
+                    Ok(p) if p >= 0.0 => p,
+                    _ => {
+                        s.add_layer(Dialog::info("Invalid price"));
+                        return;
+                    }
+                };
+                
+                let quantity = match quantity_str.parse::<f64>() {
+                    Ok(q) if q > 0.0 => q,
+                    _ => {
+                        s.add_layer(Dialog::info("Invalid quantity"));
+                        return;
+                    }
+                };
+                
+                let fees = match fees_str.parse::<f64>() {
+                    Ok(f) if f >= 0.0 => f,
+                    _ => {
+                        s.add_layer(Dialog::info("Invalid fees"));
+                        return;
+                    }
+                };
+                
+                if date.is_empty() {
+                    s.add_layer(Dialog::info("Date is required"));
+                    return;
+                }
+                
+                let new_trade = Trade {
+                    id: trade_id,
+                    symbol,
+                    trade_type,
+                    action,
+                    price,
+                    quantity,
+                    date,
+                    fees,
+                    comment,
+                };
+                
+                let result = if trade_id.is_some() {
+                    db_clone.lock().unwrap().update_trade(&new_trade)
+                } else {
+                    db_clone.lock().unwrap().add_trade(&new_trade).map(|_| ())
+                };
+                
+                match result {
+                    Ok(_) => {
+                        s.pop_layer();
+                        s.add_layer(Dialog::info("Trade saved successfully!")
+                            .button("OK", |s| {
+                                s.pop_layer();
+                            }));
+                    }
+                    Err(e) => {
+                        s.add_layer(Dialog::info(format!("Error: {}", e)));
+                    }
+                }
+            })
+            .button("Cancel", move |s| {
+                s.pop_layer();
+            })
+    );
+}
 
-    if app.trades.is_empty() {
-        let empty = Paragraph::new("No trades found. Press 'a' to add a new trade.")
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title("Trades"));
-        f.render_widget(empty, chunks[1]);
-    } else {
-        let header = Row::new(vec!["ID", "Symbol", "Type", "Action", "Price", "Qty", "Date", "Fees"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-            .bottom_margin(1);
-
-        let rows: Vec<Row> = app.trades.iter().enumerate().map(|(i, trade)| {
-            let style = if i == app.selected_trade_index {
-                Style::default().fg(Color::Black).bg(Color::White)
-            } else {
-                Style::default()
-            };
-
-            Row::new(vec![
-                trade.id.map_or("N/A".to_string(), |id| id.to_string()),
-                trade.symbol.clone(),
-                trade.trade_type.clone(),
-                trade.action.clone(),
-                format!("{:.2}", trade.price),
-                format!("{:.2}", trade.quantity),
-                trade.date.clone(),
-                format!("{:.2}", trade.fees),
-            ]).style(style)
-        }).collect();
-
-        let widths = [
-            Constraint::Length(5),
-            Constraint::Length(10),
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Length(10),
-            Constraint::Length(8),
-            Constraint::Length(12),
-            Constraint::Length(8),
-        ];
-
-        let table = Table::new(rows, widths)
-            .header(header)
-            .block(Block::default().borders(Borders::ALL).title("Trades"));
-        f.render_widget(table, chunks[1]);
+fn show_view_trades(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
+    let trades = db.lock().unwrap().get_all_trades().unwrap_or_default();
+    
+    if trades.is_empty() {
+        siv.add_layer(
+            Dialog::info("No trades found")
+                .button("Back", |s| {
+                    s.pop_layer();
+                })
+        );
+        return;
     }
-
-    let help = Paragraph::new("↑/↓: Navigate | e: Edit | d: Delete | Esc: Back")
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
-}
-
-pub fn render_edit_trade(f: &mut Frame, app: &App) {
-    // Reuse the add trade UI for editing
-    render_add_trade(f, app);
-}
-
-pub fn render_reports(f: &mut Frame, app: &App) {
-    let area = f.size();
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(area);
-
-    let title = Paragraph::new("Profit/Loss Report by Symbol")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    if app.reports.is_empty() {
-        let empty = Paragraph::new("No trades found.")
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title("Reports"));
-        f.render_widget(empty, chunks[1]);
-    } else {
-        let header = Row::new(vec!["Symbol", "Profit/Loss", "# Trades"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-            .bottom_margin(1);
-
-        let rows: Vec<Row> = app.reports.iter().map(|(symbol, profit_loss, count)| {
-            let style = if *profit_loss >= 0.0 {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default().fg(Color::Red)
-            };
-
-            Row::new(vec![
-                symbol.clone(),
-                format!("${:.2}", profit_loss),
-                count.to_string(),
-            ]).style(style)
-        }).collect();
-
-        let widths = [
-            Constraint::Percentage(30),
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
-        ];
-
-        let table = Table::new(rows, widths)
-            .header(header)
-            .block(Block::default().borders(Borders::ALL).title("Reports"));
-        f.render_widget(table, chunks[1]);
+    
+    let mut select = SelectView::new().h_align(HAlign::Left);
+    
+    for trade in trades.iter() {
+        let display = format!(
+            "{:<6} {:<8} {:<6} {:<6} ${:<8.2} {:<6.2} {} ${}",
+            trade.id.unwrap_or(0),
+            trade.symbol,
+            trade.trade_type,
+            trade.action,
+            trade.price,
+            trade.quantity,
+            trade.date,
+            trade.fees
+        );
+        select.add_item(display, trade.clone());
     }
-
-    let help = Paragraph::new("Esc: Back to Main Menu")
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
+    
+    let db_clone = db.clone();
+    let db_clone2 = db.clone();
+    
+    select.set_on_submit(move |s, trade: &Trade| {
+        s.add_layer(
+            Dialog::text("What would you like to do?")
+                .button("Edit", {
+                    let trade = trade.clone();
+                    let db = db_clone.clone();
+                    move |s| {
+                        s.pop_layer();
+                        show_add_trade(s, db.clone(), Some(trade.clone()));
+                    }
+                })
+                .button("Delete", {
+                    let trade = trade.clone();
+                    let db = db_clone2.clone();
+                    move |s| {
+                        if let Some(id) = trade.id {
+                            let _ = db.lock().unwrap().delete_trade(id);
+                            s.pop_layer();
+                            s.pop_layer();
+                            show_view_trades(s, db.clone());
+                        }
+                    }
+                })
+                .button("Cancel", |s| {
+                    s.pop_layer();
+                })
+        );
+    });
+    
+    siv.add_layer(
+        Dialog::around(select.scrollable().fixed_size((80, 20)))
+            .title("View/Edit Trades")
+            .button("Back", |s| {
+                s.pop_layer();
+            })
+    );
 }
 
-pub fn render(f: &mut Frame, app: &App) {
-    match app.current_screen {
-        Screen::MainMenu => render_main_menu(f, app),
-        Screen::AddTrade => render_add_trade(f, app),
-        Screen::ViewTrades => render_view_trades(f, app),
-        Screen::EditTrade => render_edit_trade(f, app),
-        Screen::Reports => render_reports(f, app),
+fn show_reports(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
+    let reports = db.lock().unwrap().get_report_by_symbol().unwrap_or_default();
+    
+    if reports.is_empty() {
+        siv.add_layer(
+            Dialog::info("No trades found")
+                .button("Back", |s| {
+                    s.pop_layer();
+                })
+        );
+        return;
     }
+    
+    let mut content = String::new();
+    content.push_str("Symbol       Profit/Loss    Trades\n");
+    content.push_str("=========================================\n");
+    
+    for (symbol, profit_loss, count) in reports {
+        content.push_str(&format!(
+            "{:<12} ${:<13.2} {}\n",
+            symbol, profit_loss, count
+        ));
+    }
+    
+    siv.add_layer(
+        Dialog::around(TextView::new(content))
+            .title("Profit/Loss Report by Symbol")
+            .button("Back", |s| {
+                s.pop_layer();
+            })
+    );
 }

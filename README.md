@@ -1,6 +1,6 @@
 # Stock Options Tracker
 
-A terminal-based stock and options trading tracker built with Rust, featuring a TUI interface powered by ratatui.
+A terminal-based stock and options trading tracker built with Rust, featuring a TUI interface powered by Cursive.
 
 ## Features
 
@@ -15,7 +15,7 @@ A terminal-based stock and options trading tracker built with Rust, featuring a 
   - Comment/notes field
 
 - **Trade Management**: Review and edit past trades
-  - View all trades in a table format
+  - View all trades in a list format
   - Edit existing trades
   - Delete trades
   - Trades are sorted by date (most recent first)
@@ -23,14 +23,13 @@ A terminal-based stock and options trading tracker built with Rust, featuring a 
 - **Reports**: Generate profit/loss reports by symbol
   - See total profit/loss for each stock symbol
   - Number of trades per symbol
-  - Color-coded results (green for profit, red for loss)
+  - Easy-to-read text format
 
 ## Technology Stack
 
 - **Language**: Rust
 - **Database**: SQLite (via rusqlite with bundled SQLite)
-- **User Interface**: ratatui (Terminal User Interface)
-- **Terminal Control**: crossterm
+- **User Interface**: Cursive (Terminal User Interface)
 
 ## Installation
 
@@ -57,10 +56,10 @@ cargo run --release
 
 ### Navigation
 
-- **Main Menu**: Use ↑/↓ arrow keys to navigate, Enter to select, 'q' to quit
-- **Add/Edit Trade**: Tab/Shift+Tab to move between fields, type to edit, Enter to save, Esc to cancel
-- **View Trades**: ↑/↓ to navigate trades, 'e' to edit, 'd' to delete, Esc to go back
-- **Reports**: Esc to go back to main menu
+The application uses an intuitive dialog-based interface:
+- **Main Menu**: Use arrow keys (↑/↓) to navigate, Enter to select
+- **Forms**: Use Tab to move between fields, type to edit, click buttons or use keyboard shortcuts
+- **Lists**: Use arrow keys to navigate, Enter to select items
 
 ### Adding a Trade
 
@@ -74,15 +73,24 @@ cargo run --release
    - **Date**: Transaction date in YYYY-MM-DD format (e.g., 2024-01-15)
    - **Fees**: Transaction fees (e.g., 5.00)
    - **Comment**: Optional notes
-3. Press Enter to save
+3. Click "Save" or press the keyboard shortcut to save
 
 ### Editing Trades
 
 1. Select "View/Edit Trades" from the main menu
-2. Navigate to the trade you want to edit using ↑/↓
-3. Press 'e' to edit the selected trade
-4. Modify the fields as needed
-5. Press Enter to save changes
+2. Navigate to the trade you want to edit using arrow keys
+3. Press Enter to select the trade
+4. Choose "Edit" from the dialog
+5. Modify the fields as needed
+6. Click "Save" to save changes
+
+### Deleting Trades
+
+1. Select "View/Edit Trades" from the main menu
+2. Navigate to the trade you want to delete
+3. Press Enter to select the trade
+4. Choose "Delete" from the dialog
+5. The trade will be removed immediately
 
 ### Viewing Reports
 

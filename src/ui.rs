@@ -22,7 +22,8 @@ pub fn run_ui(db: Database) {
 }
 
 fn show_main_menu(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
-    siv.pop_layer();
+    // Clear all layers first
+    while siv.pop_layer().is_some() {}
     
     let mut select = SelectView::new()
         .h_align(HAlign::Center);
@@ -174,6 +175,12 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                     return;
                 }
                 
+                // Validate date format (YYYY-MM-DD)
+                if !is_valid_date_format(&date) {
+                    s.add_layer(Dialog::info("Invalid date format. Use YYYY-MM-DD"));
+                    return;
+                }
+                
                 let new_trade = Trade {
                     id: trade_id,
                     symbol,
@@ -187,9 +194,9 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 };
                 
                 let result = if trade_id.is_some() {
-                    db_clone.lock().unwrap().update_trade(&new_trade)
+                    db_clone.lock().expect("Failed to lock database").update_trade(&new_trade)
                 } else {
-                    db_clone.lock().unwrap().add_trade(&new_trade).map(|_| ())
+                    db_clone.lock().expect("Failed to lock database").add_trade(&new_trade).map(|_| ())
                 };
                 
                 match result {
@@ -212,7 +219,18 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
 }
 
 fn show_view_trades(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
-    let trades = db.lock().unwrap().get_all_trades().unwrap_or_default();
+    let trades = match db.lock().expect("Failed to lock database").get_all_trades() {
+        Ok(trades) => trades,
+        Err(e) => {
+            siv.add_layer(
+                Dialog::info(format!("Database error: {}", e))
+                    .button("Back", |s| {
+                        s.pop_layer();
+                    })
+            );
+            return;
+        }
+    };
     
     if trades.is_empty() {
         siv.add_layer(
@@ -260,10 +278,16 @@ fn show_view_trades(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
                     let db = db_clone2.clone();
                     move |s| {
                         if let Some(id) = trade.id {
-                            let _ = db.lock().unwrap().delete_trade(id);
-                            s.pop_layer();
-                            s.pop_layer();
-                            show_view_trades(s, db.clone());
+                            match db.lock().expect("Failed to lock database").delete_trade(id) {
+                                Ok(_) => {
+                                    s.pop_layer();
+                                    s.pop_layer();
+                                    show_view_trades(s, db.clone());
+                                }
+                                Err(e) => {
+                                    s.add_layer(Dialog::info(format!("Error deleting trade: {}", e)));
+                                }
+                            }
                         }
                     }
                 })
@@ -283,7 +307,18 @@ fn show_view_trades(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
 }
 
 fn show_reports(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
-    let reports = db.lock().unwrap().get_report_by_symbol().unwrap_or_default();
+    let reports = match db.lock().expect("Failed to lock database").get_report_by_symbol() {
+        Ok(reports) => reports,
+        Err(e) => {
+            siv.add_layer(
+                Dialog::info(format!("Database error: {}", e))
+                    .button("Back", |s| {
+                        s.pop_layer();
+                    })
+            );
+            return;
+        }
+    };
     
     if reports.is_empty() {
         siv.add_layer(
@@ -313,4 +348,28 @@ fn show_reports(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
                 s.pop_layer();
             })
     );
+}
+
+fn is_valid_date_format(date: &str) -> bool {
+    // Check basic format: YYYY-MM-DD
+    if date.len() != 10 {
+        return false;
+    }
+    
+    let parts: Vec<&str> = date.split('-').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    
+    // Check that year, month, day are valid numbers
+    let year = parts[0].parse::<i32>().ok();
+    let month = parts[1].parse::<u32>().ok();
+    let day = parts[2].parse::<u32>().ok();
+    
+    if let (Some(y), Some(m), Some(d)) = (year, month, day) {
+        // Basic validation
+        (1900..=2100).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d)
+    } else {
+        false
+    }
 }

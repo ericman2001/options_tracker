@@ -14,6 +14,9 @@ pub fn run_ui(db: Database) {
     let mut theme = siv.current_theme().clone();
     theme.palette[PaletteColor::Background] = Color::TerminalDefault;
     theme.palette[PaletteColor::View] = Color::TerminalDefault;
+    theme.palette[PaletteColor::Primary] = Color::Light(cursive::theme::BaseColor::White);
+    theme.palette[PaletteColor::TitlePrimary] = Color::Dark(cursive::theme::BaseColor::Black);
+    theme.palette[PaletteColor::TitlePrimary] = Color::Dark(cursive::theme::BaseColor::Red);
     siv.set_theme(theme);
     
     show_main_menu(&mut siv, db);

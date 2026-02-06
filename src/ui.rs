@@ -66,11 +66,11 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
             .with_name("symbol")
             .fixed_width(20))
         .child("Type (stock/option):", EditView::new()
-            .content(trade.trade_type.clone())
+            .content(trade.trade_type.to_string())
             .with_name("trade_type")
             .fixed_width(20))
         .child("Action (buy/sell):", EditView::new()
-            .content(trade.action.clone())
+            .content(trade.action.to_string())
             .with_name("action")
             .fixed_width(20))
         .child("Price:", EditView::new()
@@ -187,8 +187,8 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 let new_trade = Trade {
                     id: trade_id,
                     symbol,
-                    trade_type,
-                    action,
+                    trade_type: trade_type.into(),
+                    action: action.into(),
                     price,
                     quantity,
                     date,
@@ -252,8 +252,8 @@ fn show_view_trades(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
             "{:<6} {:<8} {:<6} {:<6} ${:<8.2} {:<6.2} {} ${}",
             trade.id.unwrap_or(0),
             trade.symbol,
-            trade.trade_type,
-            trade.action,
+            trade.trade_type.as_str(),
+            trade.action.as_str(),
             trade.price,
             trade.quantity,
             trade.date,

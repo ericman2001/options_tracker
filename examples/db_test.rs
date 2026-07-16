@@ -11,8 +11,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trade1 = Trade {
         id: None,
         symbol: "AAPL".to_string(),
-        trade_type: "stock".to_string().into(),
-        action: "buy".to_string().into(),
+        trade_type: "stock".parse()?,
+        action: "buy".parse()?,
         price: 150.50,
         quantity: 100.0,
         date: "2024-01-15".to_string(),
@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trade2 = Trade {
         id: None,
         symbol: "AAPL".to_string(),
-        trade_type: "stock".to_string().into(),
-        action: "sell".to_string().into(),
+        trade_type: "stock".parse()?,
+        action: "sell".parse()?,
         price: 165.75,
         quantity: 100.0,
         date: "2024-02-15".to_string(),
@@ -43,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trade3 = Trade {
         id: None,
         symbol: "TSLA".to_string(),
-        trade_type: "option".to_string().into(),
-        action: "buy".to_string().into(),
+        trade_type: "option".parse()?,
+        action: "buy".parse()?,
         price: 50.00,
         quantity: 10.0,
         date: "2024-03-01".to_string(),

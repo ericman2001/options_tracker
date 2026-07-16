@@ -6,8 +6,7 @@ string_enum! {
         Stock => "stock",
         Option => "option",
     }
-    default = Stock,
-    invalid = "Invalid trade_type",
+    error = "trade_type",
 }
 
 string_enum! {
@@ -16,8 +15,7 @@ string_enum! {
         Buy => "buy",
         Sell => "sell",
     }
-    default = Buy,
-    invalid = "Invalid action",
+    error = "action",
 }
 
 #[derive(Debug, Clone)]
@@ -100,7 +98,7 @@ impl Database {
     pub fn get_all_trades(&self) -> Result<Vec<Trade>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, symbol, trade_type, action, price, quantity, date, fees, comment
-             FROM trades ORDER BY date DESC, id DESC"
+             FROM trades ORDER BY date DESC, id DESC",
         )?;
 
         let trades = stmt.query_map([], |row| {
@@ -144,7 +142,8 @@ impl Database {
     }
 
     pub fn delete_trade(&self, id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM trades WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM trades WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -159,16 +158,10 @@ impl Database {
                     COUNT(*) as trade_count
              FROM trades 
              GROUP BY symbol
-             ORDER BY symbol"
+             ORDER BY symbol",
         )?;
 
-        let reports = stmt.query_map([], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-            ))
-        })?;
+        let reports = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
 
         reports.collect()
     }

@@ -1,21 +1,20 @@
 /// Defines a string-backed enum together with the boilerplate needed to move
-/// its variants in and out of SQLite and to/from `String`.
+/// its variants in and out of SQLite and to/from strings.
 ///
 /// For each variant a canonical lowercase string is provided. The macro
 /// generates:
 /// - `as_str` returning the canonical string,
-/// - `rusqlite`'s `ToSql`/`FromSql` (stored as text),
+/// - a case-insensitive `FromStr` (erroring with `Invalid <error>: <input>`),
+/// - `rusqlite`'s `ToSql`/`FromSql` (stored as text, parsed via `FromStr`),
 /// - `Display`,
-/// - `From<Self> for String`,
-/// - `From<String> for Self` (case-insensitive, falling back to `default`).
+/// - `From<Self> for String`.
 macro_rules! string_enum {
     (
         $(#[$meta:meta])*
         $vis:vis enum $name:ident {
             $($variant:ident => $text:literal),+ $(,)?
         }
-        default = $default:ident,
-        invalid = $invalid:literal $(,)?
+        error = $error:literal $(,)?
     ) => {
         $(#[$meta])*
         $vis enum $name {
@@ -28,11 +27,15 @@ macro_rules! string_enum {
                     $(Self::$variant => $text),+
                 }
             }
+        }
 
-            fn from_str(value: &str) -> ::std::result::Result<Self, ::rusqlite::types::FromSqlError> {
-                match value {
+        impl ::std::str::FromStr for $name {
+            type Err = String;
+
+            fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+                match value.to_lowercase().as_str() {
                     $($text => Ok(Self::$variant),)+
-                    _ => Err(::rusqlite::types::FromSqlError::Other(Box::from($invalid))),
+                    other => Err(format!(concat!("Invalid ", $error, ": {}"), other)),
                 }
             }
         }
@@ -51,7 +54,9 @@ macro_rules! string_enum {
                     ::rusqlite::types::ValueRef::Text(text) => {
                         let value = ::std::str::from_utf8(text)
                             .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
-                        Self::from_str(value)
+                        value
+                            .parse()
+                            .map_err(|e| ::rusqlite::types::FromSqlError::Other(Box::from(e)))
                     }
                     _ => Err(::rusqlite::types::FromSqlError::InvalidType),
                 }
@@ -67,15 +72,6 @@ macro_rules! string_enum {
         impl From<$name> for String {
             fn from(value: $name) -> String {
                 value.to_string()
-            }
-        }
-
-        impl From<String> for $name {
-            fn from(s: String) -> Self {
-                match s.to_lowercase().as_str() {
-                    $($text => Self::$variant,)+
-                    _ => Self::$default,
-                }
             }
         }
     };

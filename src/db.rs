@@ -269,3 +269,60 @@ impl From<Action> for String {
         a.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trade_type_parses_valid_values() {
+        assert!(matches!("stock".parse::<TradeType>(), Ok(TradeType::Stock)));
+        assert!(matches!(
+            "OPTION".parse::<TradeType>(),
+            Ok(TradeType::Option)
+        ));
+    }
+
+    #[test]
+    fn trade_type_rejects_invalid_values() {
+        // Invalid input must error rather than silently defaulting to Stock.
+        assert!("crypto".parse::<TradeType>().is_err());
+        assert!("".parse::<TradeType>().is_err());
+    }
+
+    #[test]
+    fn action_parses_valid_values() {
+        assert!(matches!("buy".parse::<Action>(), Ok(Action::Buy)));
+        assert!(matches!("SELL".parse::<Action>(), Ok(Action::Sell)));
+    }
+
+    #[test]
+    fn action_rejects_invalid_values() {
+        // Invalid input must error rather than silently defaulting to Buy.
+        assert!("hold".parse::<Action>().is_err());
+        assert!("".parse::<Action>().is_err());
+    }
+
+    #[test]
+    fn crud_round_trip_and_report() -> Result<()> {
+        let db = Database::new(":memory:")?;
+        let id = db.add_trade(&Trade {
+            symbol: "AAPL".to_string(),
+            trade_type: TradeType::Stock,
+            action: Action::Buy,
+            price: 100.0,
+            quantity: 10.0,
+            date: "2024-01-01".to_string(),
+            fees: 1.0,
+            ..Default::default()
+        })?;
+
+        let trades = db.get_all_trades()?;
+        assert_eq!(trades.len(), 1);
+        assert_eq!(trades[0].symbol, "AAPL");
+
+        db.delete_trade(id)?;
+        assert!(db.get_all_trades()?.is_empty());
+        Ok(())
+    }
+}

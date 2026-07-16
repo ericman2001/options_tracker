@@ -138,49 +138,37 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
         Dialog::around(form.scrollable().fixed_size((50, 20)))
             .title(title)
             .button("Save", move |s| {
-                let symbol = s
-                    .call_on_name("symbol", |view: &mut EditView| {
-                        view.get_content().to_string().to_uppercase()
-                    })
-                    .unwrap_or_default();
+                let read_field = |s: &mut Cursive, name: &str| {
+                    s.call_on_name(name, |view: &mut EditView| view.get_content().to_string())
+                };
 
-                let trade_type = s
-                    .call_on_name("trade_type", |view: &mut EditView| {
-                        view.get_content().to_string()
-                    })
-                    .unwrap_or_default();
+                // If any field lookup fails the form is malformed; surface it
+                // instead of silently treating the value as empty.
+                let fields = (|| {
+                    Some((
+                        read_field(s, "symbol")?,
+                        read_field(s, "trade_type")?,
+                        read_field(s, "action")?,
+                        read_field(s, "price")?,
+                        read_field(s, "quantity")?,
+                        read_field(s, "date")?,
+                        read_field(s, "fees")?,
+                        read_field(s, "comment")?,
+                    ))
+                })();
 
-                let action = s
-                    .call_on_name("action", |view: &mut EditView| {
-                        view.get_content().to_string()
-                    })
-                    .unwrap_or_default();
+                let (symbol, trade_type, action, price_str, quantity_str, date, fees_str, comment) =
+                    match fields {
+                        Some(values) => values,
+                        None => {
+                            s.add_layer(Dialog::info(
+                                "Internal error: could not read one or more form fields",
+                            ));
+                            return;
+                        }
+                    };
 
-                let price_str = s
-                    .call_on_name("price", |view: &mut EditView| {
-                        view.get_content().to_string()
-                    })
-                    .unwrap_or_default();
-
-                let quantity_str = s
-                    .call_on_name("quantity", |view: &mut EditView| {
-                        view.get_content().to_string()
-                    })
-                    .unwrap_or_default();
-
-                let date = s
-                    .call_on_name("date", |view: &mut EditView| view.get_content().to_string())
-                    .unwrap_or_default();
-
-                let fees_str = s
-                    .call_on_name("fees", |view: &mut EditView| view.get_content().to_string())
-                    .unwrap_or_default();
-
-                let comment = s
-                    .call_on_name("comment", |view: &mut EditView| {
-                        view.get_content().to_string()
-                    })
-                    .unwrap_or_default();
+                let symbol = symbol.to_uppercase();
 
                 // Validate inputs
                 if symbol.is_empty() {

@@ -418,9 +418,61 @@ fn is_valid_date_format(date: &str) -> bool {
     let day = parts[2].parse::<u32>().ok();
 
     if let (Some(y), Some(m), Some(d)) = (year, month, day) {
-        // Basic validation
-        (1900..=2100).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d)
+        if !(1900..=2100).contains(&y) || !(1..=12).contains(&m) {
+            return false;
+        }
+        (1..=days_in_month(y, m)).contains(&d)
     } else {
         false
+    }
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_valid_dates() {
+        assert!(is_valid_date_format("2024-01-15"));
+        assert!(is_valid_date_format("2024-02-29")); // leap year
+        assert!(is_valid_date_format("2024-12-31"));
+    }
+
+    #[test]
+    fn rejects_impossible_days() {
+        assert!(!is_valid_date_format("2024-02-31"));
+        assert!(!is_valid_date_format("2023-02-29")); // non-leap year
+        assert!(!is_valid_date_format("2024-04-31"));
+        assert!(!is_valid_date_format("2024-01-00"));
+    }
+
+    #[test]
+    fn rejects_out_of_range_month_and_year() {
+        assert!(!is_valid_date_format("2024-13-01"));
+        assert!(!is_valid_date_format("2024-00-01"));
+        assert!(!is_valid_date_format("1899-01-01"));
+        assert!(!is_valid_date_format("2101-01-01"));
+    }
+
+    #[test]
+    fn rejects_malformed_input() {
+        assert!(!is_valid_date_format("2024-1-1"));
+        assert!(!is_valid_date_format("2024/01/01"));
+        assert!(!is_valid_date_format("not-a-date"));
+        assert!(!is_valid_date_format(""));
     }
 }

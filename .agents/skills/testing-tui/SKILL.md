@@ -37,11 +37,39 @@ use), not by piping stdin.
   needs **two clicks** (first moves focus, second activates). Or Tab to the button
   and press Enter.
 - Dialogs: dismiss with Enter (the highlighted `<OK>` button).
+- The trade list is ~90 cols wide; long option rows are clipped at the right edge but
+  the list is horizontally scrollable (since 37614ad, `scroll_x(true)`) — focus the
+  list and press Right to reveal trailing `exp / status / DTE`. To confirm an option's
+  status without scrolling, open its actions dialog: an `open` option shows
+  Assign/Exercise/Expire; a resolved one (assigned/expired) shows only Edit/Delete.
+
+## Mutex re-lock deadlock pattern (was a bug; fixed in 37614ad — regression-watch)
+- History: at ea24536, clicking **Expire** or **Delete** froze the whole app because the
+  handler held the `Database` `MutexGuard` as a temporary in the `match` scrutinee and
+  then called `show_view_trades`, which re-locks the same non-reentrant
+  `std::sync::Mutex` (`src/ui.rs` ~505 → 410). Fixed at 37614ad by binding the call to
+  `let res = db.lock()…expire_option(id);` (guard dropped before the refresh) — the
+  same pattern Assign already used. Verified: Expire + Delete now refresh without hanging.
+- Regression watch: any callback that both `db.lock()`s and then calls a function that
+  re-locks (`show_view_trades`, reports, etc.) can re-introduce this. If the TUI hangs
+  after a button press, confirm with
+  `sudo gdb -p <pid> -batch -ex "bt" | grep ui.rs` — a `show_view_trades` frame under a
+  `show_trade_actions::{closure}` frame, both blocked in a mutex lock = this deadlock.
+- Note the DB write (e.g. `expire_option`) completes before the UI re-lock, so if it
+  ever hangs again, relaunching still shows the intended data change.
+
+## Environment gotchas
+- Do **not** run the app from `/tmp` — it can be wiped mid-session (tmpfs cleanup),
+  losing the DB and closing the terminal. Use a stable dir like `/home/ubuntu/ottest`.
+- If konsole closes, Chrome may take the foreground and steal keystrokes; re-activate
+  konsole with `wmctrl -ia <konsole_wid>` before sending input.
 
 ## What to verify for enum / validation changes
 - Add validation: invalid Type → dialog `Type must be 'stock' or 'option'`; invalid
-  Action → `Action must be 'buy' or 'sell'`; neither is saved. Type/Action are
-  case-insensitive (e.g. `Option` is accepted and stored lowercase).
+  Action → `Action must be one of: buy_to_open, sell_to_open, buy_to_close, sell_to_close`;
+  option with blank Option Type/Strike/Expiration → `Option Type must be 'call' or 'put'`
+  / `Invalid strike` / `Expiration is required for options`; none is saved. Type/Action
+  are case-insensitive (e.g. `Option` is accepted and stored lowercase).
 - Round-trip: a saved trade should appear in View/Edit Trades with the exact stored
   values (proves `ToSql` write + `FromSql` read).
 - Reports: P/L per symbol = sum of sells `(price*qty)-fees` minus buys `(price*qty)+fees`.

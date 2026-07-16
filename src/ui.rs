@@ -126,14 +126,37 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
         Dialog::around(form.scrollable().fixed_size((50, 20)))
             .title(title)
             .button("Save", move |s| {
-                let symbol = get_field_content(s, "symbol").to_uppercase();
-                let trade_type = get_field_content(s, "trade_type");
-                let action = get_field_content(s, "action");
-                let price_str = get_field_content(s, "price");
-                let quantity_str = get_field_content(s, "quantity");
-                let date = get_field_content(s, "date");
-                let fees_str = get_field_content(s, "fees");
-                let comment = get_field_content(s, "comment");
+                let read_field = |s: &mut Cursive, name: &str| {
+                    s.call_on_name(name, |view: &mut EditView| view.get_content().to_string())
+                };
+
+                // If any field lookup fails the form is malformed; surface it
+                // instead of silently treating the value as empty.
+                let fields = (|| {
+                    Some((
+                        read_field(s, "symbol")?,
+                        read_field(s, "trade_type")?,
+                        read_field(s, "action")?,
+                        read_field(s, "price")?,
+                        read_field(s, "quantity")?,
+                        read_field(s, "date")?,
+                        read_field(s, "fees")?,
+                        read_field(s, "comment")?,
+                    ))
+                })();
+
+                let (symbol, trade_type, action, price_str, quantity_str, date, fees_str, comment) =
+                    match fields {
+                        Some(values) => values,
+                        None => {
+                            s.add_layer(Dialog::info(
+                                "Internal error: could not read one or more form fields",
+                            ));
+                            return;
+                        }
+                    };
+
+                let symbol = symbol.to_uppercase();
 
                 // Validate inputs
                 if symbol.is_empty() {
@@ -343,13 +366,6 @@ fn show_reports(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
                 s.pop_layer();
             }),
     );
-}
-
-// Reads the current content of a named EditView, returning an empty string
-// if the view is missing.
-fn get_field_content(siv: &mut Cursive, name: &str) -> String {
-    siv.call_on_name(name, |view: &mut EditView| view.get_content().to_string())
-        .unwrap_or_default()
 }
 
 // Formats a monetary amount for an edit field, leaving it blank for

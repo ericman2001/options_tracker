@@ -1,3 +1,6 @@
+use std::fmt;
+use std::str::FromStr;
+
 use rusqlite::{
     params,
     types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
@@ -23,14 +26,6 @@ impl TradeType {
             TradeType::Option => "option",
         }
     }
-
-    fn from_db_str(value: &str) -> Result<Self, FromSqlError> {
-        match value {
-            "stock" => Ok(TradeType::Stock),
-            "option" => Ok(TradeType::Option),
-            _ => Err(FromSqlError::Other(Box::from("Invalid trade_type"))),
-        }
-    }
 }
 
 impl Action {
@@ -40,12 +35,28 @@ impl Action {
             Action::Sell => "sell",
         }
     }
+}
 
-    fn from_db_str(value: &str) -> Result<Self, FromSqlError> {
-        match value {
+impl FromStr for TradeType {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_lowercase().as_str() {
+            "stock" => Ok(TradeType::Stock),
+            "option" => Ok(TradeType::Option),
+            other => Err(format!("Invalid trade_type: {other}")),
+        }
+    }
+}
+
+impl FromStr for Action {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_lowercase().as_str() {
             "buy" => Ok(Action::Buy),
             "sell" => Ok(Action::Sell),
-            _ => Err(FromSqlError::Other(Box::from("Invalid action"))),
+            other => Err(format!("Invalid action: {other}")),
         }
     }
 }
@@ -61,7 +72,7 @@ impl FromSql for TradeType {
         match value {
             ValueRef::Text(text) => {
                 let value = std::str::from_utf8(text).map_err(|_| FromSqlError::InvalidType)?;
-                TradeType::from_db_str(value)
+                value.parse().map_err(|e| FromSqlError::Other(Box::from(e)))
             }
             _ => Err(FromSqlError::InvalidType),
         }
@@ -79,7 +90,7 @@ impl FromSql for Action {
         match value {
             ValueRef::Text(text) => {
                 let value = std::str::from_utf8(text).map_err(|_| FromSqlError::InvalidType)?;
-                Action::from_db_str(value)
+                value.parse().map_err(|e| FromSqlError::Other(Box::from(e)))
             }
             _ => Err(FromSqlError::InvalidType),
         }
@@ -235,9 +246,6 @@ impl Database {
     }
 }
 
-use std::fmt;
-use std::str::FromStr;
-
 impl fmt::Display for TradeType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
@@ -250,18 +258,6 @@ impl From<TradeType> for String {
     }
 }
 
-impl FromStr for TradeType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_str() {
-            "stock" => Ok(TradeType::Stock),
-            "option" => Ok(TradeType::Option),
-            other => Err(format!("Invalid trade type: '{}'", other)),
-        }
-    }
-}
-
 impl fmt::Display for Action {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
@@ -271,18 +267,6 @@ impl fmt::Display for Action {
 impl From<Action> for String {
     fn from(a: Action) -> String {
         a.to_string()
-    }
-}
-
-impl FromStr for Action {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_str() {
-            "buy" => Ok(Action::Buy),
-            "sell" => Ok(Action::Sell),
-            other => Err(format!("Invalid action: '{}'", other)),
-        }
     }
 }
 

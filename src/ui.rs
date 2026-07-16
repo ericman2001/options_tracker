@@ -1,4 +1,4 @@
-use crate::db::{Database, Trade};
+use crate::db::{Action, Database, Trade, TradeType};
 use cursive::align::HAlign;
 use cursive::theme::{Color, PaletteColor};
 use cursive::traits::*;
@@ -176,7 +176,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                     return;
                 }
 
-                let trade_type = match trade_type.parse::<crate::db::TradeType>() {
+                let trade_type = match trade_type.parse::<TradeType>() {
                     Ok(t) => t,
                     Err(_) => {
                         s.add_layer(Dialog::info("Type must be 'stock' or 'option'"));
@@ -184,7 +184,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                     }
                 };
 
-                let action = match action.parse::<crate::db::Action>() {
+                let action = match action.parse::<Action>() {
                     Ok(a) => a,
                     Err(_) => {
                         s.add_layer(Dialog::info("Action must be 'buy' or 'sell'"));

@@ -255,6 +255,7 @@ impl Database {
 
     pub fn update_trade(&self, trade: &Trade) -> Result<()> {
         if let Some(id) = trade.id {
+            let tx = self.conn.unchecked_transaction()?;
             self.conn.execute(
                 "UPDATE trades
                  SET symbol = ?1, trade_type = ?2, action = ?3, price = ?4,
@@ -279,17 +280,21 @@ impl Database {
                     id,
                 ],
             )?;
-            // If an option is edited away from a stock-generating status, drop any
-            // linked stock rows so no orphaned assignment rows remain.
-            if trade.trade_type == TradeType::Option
-                && !trade
-                    .status
-                    .as_ref()
-                    .map(|s| s.triggers_stock_event())
-                    .unwrap_or(false)
-            {
-                self.delete_linked_stock_rows(id)?;
+            // Reconcile auto-generated linked stock rows: clear any existing rows
+            // for this option, then regenerate them if the edited option is still
+            // in a stock-generating status (Assigned/Exercised). This keeps the
+            // linked row's strike/quantity in sync with edits and drops orphans
+            // both when the option moves off that status and when its type is
+            // changed away from Option.
+            self.delete_linked_stock_rows(id)?;
+            if trade.trade_type == TradeType::Option {
+                if let Some(status) = trade.status.clone() {
+                    if status.triggers_stock_event() {
+                        self.insert_linked_stock_row(trade, &status)?;
+                    }
+                }
             }
+            tx.commit()?;
         }
         Ok(())
     }
@@ -298,9 +303,11 @@ impl Database {
     /// stock rows are deleted too so the ledger never keeps orphaned assignment
     /// rows.
     pub fn delete_trade(&self, id: i64) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
         self.delete_linked_stock_rows(id)?;
         self.conn
             .execute("DELETE FROM trades WHERE id = ?1", params![id])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -327,15 +334,33 @@ impl Database {
             .get_trade(option_id)?
             .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows)?;
 
+        let tx = self.conn.unchecked_transaction()?;
+        // Replace any previously generated linked rows before regenerating.
+        self.delete_linked_stock_rows(option_id)?;
+        let stock_id = self.insert_linked_stock_row(&option, &status)?;
+        self.conn.execute(
+            "UPDATE trades SET status = ?1 WHERE id = ?2",
+            params![status, option_id],
+        )?;
+        tx.commit()?;
+        Ok(stock_id)
+    }
+
+    /// Inserts the linked stock trade produced by assigning/exercising `option`
+    /// at its strike (put → buy `qty * 100` shares; call → sell `qty * 100`
+    /// shares), tagged with `assigned_from = option.id`. Returns the new row id.
+    /// Callers are responsible for clearing any prior linked rows and for running
+    /// inside a transaction alongside the option's status update.
+    fn insert_linked_stock_row(&self, option: &Trade, status: &OptionStatus) -> Result<i64> {
+        let option_id = option
+            .id
+            .ok_or_else(|| rusqlite::Error::InvalidParameterName("option has no id".to_string()))?;
         let option_type = option.option_type.clone().ok_or_else(|| {
             rusqlite::Error::InvalidParameterName("trade is not an option".to_string())
         })?;
         let strike = option.strike.ok_or_else(|| {
             rusqlite::Error::InvalidParameterName("option has no strike".to_string())
         })?;
-
-        // Replace any previously generated linked rows before regenerating.
-        self.delete_linked_stock_rows(option_id)?;
 
         let stock_action = match option_type {
             // Put assigned → we buy shares at strike (from flat: long).
@@ -360,24 +385,20 @@ impl Database {
             status: None,
             assigned_from: Some(option_id),
         };
-        let stock_id = self.add_trade(&stock)?;
-
-        self.conn.execute(
-            "UPDATE trades SET status = ?1 WHERE id = ?2",
-            params![status, option_id],
-        )?;
-        Ok(stock_id)
+        self.add_trade(&stock)
     }
 
     /// Marks an open option as expired: closes it with no additional cash flow
     /// (the premium was already booked when the option was opened) and removes
     /// any linked stock rows from a prior assignment.
     pub fn expire_option(&self, option_id: i64) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
         self.delete_linked_stock_rows(option_id)?;
         self.conn.execute(
             "UPDATE trades SET status = ?1 WHERE id = ?2",
             params![OptionStatus::Expired, option_id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -718,6 +739,74 @@ mod tests {
         // Premium kept as profit; no linked stock row created.
         assert!((report[0].profit_loss - 300.0).abs() < 1e-9);
         assert!(report[0].net_shares.abs() < 1e-9);
+        assert!(db
+            .get_all_trades()
+            .unwrap()
+            .iter()
+            .all(|t| t.assigned_from.is_none()));
+    }
+
+    #[test]
+    fn editing_assigned_option_regenerates_linked_stock_row() {
+        let db = new_test_db();
+        let put_id = db
+            .add_trade(&option(
+                "AAPL",
+                Action::SellToOpen,
+                OptionType::Put,
+                2.0,
+                1.0,
+                100.0,
+                "2024-06-21",
+            ))
+            .unwrap();
+        db.assign_option(put_id, OptionStatus::Assigned).unwrap();
+
+        // Edit the assigned option's strike and quantity while keeping it assigned.
+        let mut edited = db.get_trade(put_id).unwrap().unwrap();
+        edited.strike = Some(90.0);
+        edited.quantity = 2.0;
+        db.update_trade(&edited).unwrap();
+
+        let linked: Vec<Trade> = db
+            .get_all_trades()
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.assigned_from == Some(put_id))
+            .collect();
+        assert_eq!(linked.len(), 1);
+        assert!((linked[0].price - 90.0).abs() < 1e-9);
+        assert!((linked[0].quantity - 200.0).abs() < 1e-9); // 2 contracts * 100
+        assert!((db.net_shares("AAPL").unwrap() - 200.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn editing_assigned_option_to_stock_removes_linked_rows() {
+        let db = new_test_db();
+        let put_id = db
+            .add_trade(&option(
+                "AAPL",
+                Action::SellToOpen,
+                OptionType::Put,
+                2.0,
+                1.0,
+                100.0,
+                "2024-06-21",
+            ))
+            .unwrap();
+        db.assign_option(put_id, OptionStatus::Assigned).unwrap();
+        assert_eq!(db.get_all_trades().unwrap().len(), 2);
+
+        // Change the option row to a plain stock trade (status/option fields cleared).
+        let mut edited = db.get_trade(put_id).unwrap().unwrap();
+        edited.trade_type = TradeType::Stock;
+        edited.option_type = None;
+        edited.strike = None;
+        edited.expiration = None;
+        edited.status = None;
+        db.update_trade(&edited).unwrap();
+
+        // No orphaned linked stock row should remain.
         assert!(db
             .get_all_trades()
             .unwrap()

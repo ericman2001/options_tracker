@@ -1,100 +1,21 @@
-use std::fmt;
-use std::str::FromStr;
+use rusqlite::{params, Connection, Result};
 
-use rusqlite::{
-    params,
-    types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
-    Connection, Result,
-};
-
-#[derive(Debug, Clone)]
-pub enum TradeType {
-    Stock,
-    Option,
-}
-
-#[derive(Debug, Clone)]
-pub enum Action {
-    Buy,
-    Sell,
-}
-
-impl TradeType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TradeType::Stock => "stock",
-            TradeType::Option => "option",
-        }
+string_enum! {
+    #[derive(Debug, Clone)]
+    pub enum TradeType {
+        Stock => "stock",
+        Option => "option",
     }
+    error = "trade_type",
 }
 
-impl Action {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Action::Buy => "buy",
-            Action::Sell => "sell",
-        }
+string_enum! {
+    #[derive(Debug, Clone)]
+    pub enum Action {
+        Buy => "buy",
+        Sell => "sell",
     }
-}
-
-impl FromStr for TradeType {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.to_lowercase().as_str() {
-            "stock" => Ok(TradeType::Stock),
-            "option" => Ok(TradeType::Option),
-            other => Err(format!("Invalid trade_type: {other}")),
-        }
-    }
-}
-
-impl FromStr for Action {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.to_lowercase().as_str() {
-            "buy" => Ok(Action::Buy),
-            "sell" => Ok(Action::Sell),
-            other => Err(format!("Invalid action: {other}")),
-        }
-    }
-}
-
-impl ToSql for TradeType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::from(self.as_str()))
-    }
-}
-
-impl FromSql for TradeType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value {
-            ValueRef::Text(text) => {
-                let value = std::str::from_utf8(text).map_err(|_| FromSqlError::InvalidType)?;
-                value.parse().map_err(|e| FromSqlError::Other(Box::from(e)))
-            }
-            _ => Err(FromSqlError::InvalidType),
-        }
-    }
-}
-
-impl ToSql for Action {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::from(self.as_str()))
-    }
-}
-
-impl FromSql for Action {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value {
-            ValueRef::Text(text) => {
-                let value = std::str::from_utf8(text).map_err(|_| FromSqlError::InvalidType)?;
-                value.parse().map_err(|e| FromSqlError::Other(Box::from(e)))
-            }
-            _ => Err(FromSqlError::InvalidType),
-        }
-    }
+    error = "action",
 }
 
 #[derive(Debug, Clone)]
@@ -243,30 +164,6 @@ impl Database {
         let reports = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
 
         reports.collect()
-    }
-}
-
-impl fmt::Display for TradeType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl From<TradeType> for String {
-    fn from(t: TradeType) -> String {
-        t.to_string()
-    }
-}
-
-impl fmt::Display for Action {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl From<Action> for String {
-    fn from(a: Action) -> String {
-        a.to_string()
     }
 }
 

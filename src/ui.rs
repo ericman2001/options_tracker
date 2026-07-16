@@ -86,22 +86,14 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
         .child(
             "Price:",
             EditView::new()
-                .content(if trade.price > 0.0 {
-                    format!("{:.2}", trade.price)
-                } else {
-                    String::new()
-                })
+                .content(format_amount(trade.price))
                 .with_name("price")
                 .fixed_width(20),
         )
         .child(
             "Quantity:",
             EditView::new()
-                .content(if trade.quantity > 0.0 {
-                    format!("{:.2}", trade.quantity)
-                } else {
-                    String::new()
-                })
+                .content(format_amount(trade.quantity))
                 .with_name("quantity")
                 .fixed_width(20),
         )
@@ -115,11 +107,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
         .child(
             "Fees:",
             EditView::new()
-                .content(if trade.fees > 0.0 {
-                    format!("{:.2}", trade.fees)
-                } else {
-                    String::new()
-                })
+                .content(format_amount(trade.fees))
                 .with_name("fees")
                 .fixed_width(20),
         )
@@ -192,28 +180,19 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                     }
                 };
 
-                let price = match price_str.parse::<f64>() {
-                    Ok(p) if p >= 0.0 => p,
-                    _ => {
-                        s.add_layer(Dialog::info("Invalid price"));
-                        return;
-                    }
+                let price = match parse_amount(s, &price_str, "price", true) {
+                    Some(p) => p,
+                    None => return,
                 };
 
-                let quantity = match quantity_str.parse::<f64>() {
-                    Ok(q) if q > 0.0 => q,
-                    _ => {
-                        s.add_layer(Dialog::info("Invalid quantity"));
-                        return;
-                    }
+                let quantity = match parse_amount(s, &quantity_str, "quantity", false) {
+                    Some(q) => q,
+                    None => return,
                 };
 
-                let fees = match fees_str.parse::<f64>() {
-                    Ok(f) if f >= 0.0 => f,
-                    _ => {
-                        s.add_layer(Dialog::info("Invalid fees"));
-                        return;
-                    }
+                let fees = match parse_amount(s, &fees_str, "fees", true) {
+                    Some(f) => f,
+                    None => return,
                 };
 
                 if date.is_empty() {
@@ -274,19 +253,13 @@ fn show_view_trades(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
     let trades = match db.lock().expect("Failed to lock database").get_all_trades() {
         Ok(trades) => trades,
         Err(e) => {
-            siv.add_layer(
-                Dialog::info(format!("Database error: {}", e)).button("Back", |s| {
-                    s.pop_layer();
-                }),
-            );
+            show_dialog_with_back(siv, format!("Database error: {}", e));
             return;
         }
     };
 
     if trades.is_empty() {
-        siv.add_layer(Dialog::info("No trades found").button("Back", |s| {
-            s.pop_layer();
-        }));
+        show_dialog_with_back(siv, "No trades found".to_string());
         return;
     }
 
@@ -365,19 +338,13 @@ fn show_reports(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
     {
         Ok(reports) => reports,
         Err(e) => {
-            siv.add_layer(
-                Dialog::info(format!("Database error: {}", e)).button("Back", |s| {
-                    s.pop_layer();
-                }),
-            );
+            show_dialog_with_back(siv, format!("Database error: {}", e));
             return;
         }
     };
 
     if reports.is_empty() {
-        siv.add_layer(Dialog::info("No trades found").button("Back", |s| {
-            s.pop_layer();
-        }));
+        show_dialog_with_back(siv, "No trades found".to_string());
         return;
     }
 
@@ -399,6 +366,36 @@ fn show_reports(siv: &mut Cursive, db: Arc<Mutex<Database>>) {
                 s.pop_layer();
             }),
     );
+}
+
+// Formats a monetary amount for an edit field, leaving it blank for
+// non-positive values.
+fn format_amount(value: f64) -> String {
+    if value > 0.0 {
+        format!("{:.2}", value)
+    } else {
+        String::new()
+    }
+}
+
+// Parses a user-entered f64, showing an error dialog and returning None when
+// the input is invalid. When allow_zero is false the value must be strictly
+// positive.
+fn parse_amount(siv: &mut Cursive, raw: &str, label: &str, allow_zero: bool) -> Option<f64> {
+    match raw.parse::<f64>() {
+        Ok(value) if value > 0.0 || (allow_zero && value == 0.0) => Some(value),
+        _ => {
+            siv.add_layer(Dialog::info(format!("Invalid {}", label)));
+            None
+        }
+    }
+}
+
+// Shows an informational dialog with a single "Back" button that pops itself.
+fn show_dialog_with_back(siv: &mut Cursive, message: String) {
+    siv.add_layer(Dialog::info(message).button("Back", |s| {
+        s.pop_layer();
+    }));
 }
 
 fn is_valid_date_format(date: &str) -> bool {

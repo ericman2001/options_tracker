@@ -440,13 +440,53 @@ fn is_leap_year(year: i32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::is_valid_date_format;
 
     #[test]
     fn accepts_valid_dates() {
         assert!(is_valid_date_format("2024-01-15"));
+        assert!(is_valid_date_format("1900-01-01"));
+        assert!(is_valid_date_format("2100-12-31"));
         assert!(is_valid_date_format("2024-02-29")); // leap year
-        assert!(is_valid_date_format("2024-12-31"));
+    }
+
+    #[test]
+    fn rejects_wrong_length() {
+        assert!(!is_valid_date_format(""));
+        assert!(!is_valid_date_format("2024-1-1"));
+        assert!(!is_valid_date_format("2024-01-155"));
+    }
+
+    #[test]
+    fn rejects_wrong_separator_count() {
+        // Correct length but not three dash-separated parts.
+        assert!(!is_valid_date_format("2024/01/15"));
+        assert!(!is_valid_date_format("20240115xx"));
+    }
+
+    #[test]
+    fn rejects_non_numeric_parts() {
+        assert!(!is_valid_date_format("abcd-01-15"));
+        assert!(!is_valid_date_format("2024-ab-15"));
+        assert!(!is_valid_date_format("2024-01-cd"));
+    }
+
+    #[test]
+    fn rejects_out_of_range_year() {
+        assert!(!is_valid_date_format("1899-01-01"));
+        assert!(!is_valid_date_format("2101-01-01"));
+    }
+
+    #[test]
+    fn rejects_out_of_range_month() {
+        assert!(!is_valid_date_format("2024-00-15"));
+        assert!(!is_valid_date_format("2024-13-15"));
+    }
+
+    #[test]
+    fn rejects_out_of_range_day() {
+        assert!(!is_valid_date_format("2024-01-00"));
+        assert!(!is_valid_date_format("2024-01-32"));
     }
 
     #[test]
@@ -454,22 +494,5 @@ mod tests {
         assert!(!is_valid_date_format("2024-02-31"));
         assert!(!is_valid_date_format("2023-02-29")); // non-leap year
         assert!(!is_valid_date_format("2024-04-31"));
-        assert!(!is_valid_date_format("2024-01-00"));
-    }
-
-    #[test]
-    fn rejects_out_of_range_month_and_year() {
-        assert!(!is_valid_date_format("2024-13-01"));
-        assert!(!is_valid_date_format("2024-00-01"));
-        assert!(!is_valid_date_format("1899-01-01"));
-        assert!(!is_valid_date_format("2101-01-01"));
-    }
-
-    #[test]
-    fn rejects_malformed_input() {
-        assert!(!is_valid_date_format("2024-1-1"));
-        assert!(!is_valid_date_format("2024/01/01"));
-        assert!(!is_valid_date_format("not-a-date"));
-        assert!(!is_valid_date_format(""));
     }
 }

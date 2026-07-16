@@ -320,10 +320,12 @@ impl Database {
     }
 
     /// Marks an open option as assigned or exercised and inserts the linked stock
-    /// trade at the option's strike (put → buy `qty * 100` shares; call → sell
-    /// `qty * 100` shares). Late reconciliation is allowed — a past expiration
-    /// does not block this. No additional option cash flow is recorded; the
-    /// premium was already booked when the option was opened.
+    /// trade at the option's strike. Direction depends on the option's type and
+    /// long/short side (short put assigned → buy, short call assigned → sell,
+    /// long put exercised → sell, long call exercised → buy), for `qty * 100`
+    /// shares. Late reconciliation is allowed — a past expiration does not block
+    /// this. No additional option cash flow is recorded; the premium was already
+    /// booked when the option was opened.
     pub fn assign_option(&self, option_id: i64, status: OptionStatus) -> Result<i64> {
         if !status.triggers_stock_event() {
             return Err(rusqlite::Error::InvalidParameterName(
@@ -347,10 +349,11 @@ impl Database {
     }
 
     /// Inserts the linked stock trade produced by assigning/exercising `option`
-    /// at its strike (put → buy `qty * 100` shares; call → sell `qty * 100`
-    /// shares), tagged with `assigned_from = option.id`. Returns the new row id.
-    /// Callers are responsible for clearing any prior linked rows and for running
-    /// inside a transaction alongside the option's status update.
+    /// at its strike for `qty * 100` shares, tagged with `assigned_from =
+    /// option.id`. The buy/sell direction depends on the option type and its
+    /// long/short side (see the match below). Returns the new row id. Callers are
+    /// responsible for clearing any prior linked rows and for running inside a
+    /// transaction alongside the option's status update.
     fn insert_linked_stock_row(&self, option: &Trade, status: &OptionStatus) -> Result<i64> {
         let option_id = option
             .id
@@ -362,11 +365,17 @@ impl Database {
             rusqlite::Error::InvalidParameterName("option has no strike".to_string())
         })?;
 
-        let stock_action = match option_type {
-            // Put assigned → we buy shares at strike (from flat: long).
-            OptionType::Put => Action::BuyToOpen,
-            // Call assigned → we sell shares at strike (from flat: short).
-            OptionType::Call => Action::SellToOpen,
+        // Share direction depends on both the option type and whether the option
+        // was long (bought to open) or short (sold to open):
+        //   short put assigned    → buy shares  (put obligates us to buy)
+        //   short call assigned   → sell shares (call obligates us to sell)
+        //   long put exercised    → sell shares (we exercise our right to sell)
+        //   long call exercised   → buy shares  (we exercise our right to buy)
+        let stock_action = match (&option_type, option.action.is_buy()) {
+            (OptionType::Put, false) => Action::BuyToOpen,
+            (OptionType::Call, false) => Action::SellToOpen,
+            (OptionType::Put, true) => Action::SellToOpen,
+            (OptionType::Call, true) => Action::BuyToOpen,
         };
 
         let stock = Trade {
@@ -648,6 +657,64 @@ mod tests {
             .find(|t| t.assigned_from == Some(call_id))
             .unwrap();
         assert!(!linked.action.is_buy());
+    }
+
+    #[test]
+    fn long_call_exercise_creates_long_linked_stock_row() {
+        let db = new_test_db();
+        // Buy a call (long), then exercise it → buy shares at strike.
+        let call_id = db
+            .add_trade(&option(
+                "AAPL",
+                Action::BuyToOpen,
+                OptionType::Call,
+                1.0,
+                1.0,
+                110.0,
+                "2024-06-21",
+            ))
+            .unwrap();
+        db.assign_option(call_id, OptionStatus::Exercised).unwrap();
+
+        // Exercising a long call buys shares (from flat: long).
+        assert!((db.net_shares("AAPL").unwrap() - 100.0).abs() < 1e-9);
+        let linked = db
+            .get_all_trades()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.assigned_from == Some(call_id))
+            .unwrap();
+        assert!(linked.action.is_buy());
+        assert!((linked.price - 110.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn long_put_exercise_creates_short_linked_stock_row() {
+        let db = new_test_db();
+        // Buy a put (long), then exercise it → sell shares at strike.
+        let put_id = db
+            .add_trade(&option(
+                "AAPL",
+                Action::BuyToOpen,
+                OptionType::Put,
+                1.0,
+                1.0,
+                90.0,
+                "2024-06-21",
+            ))
+            .unwrap();
+        db.assign_option(put_id, OptionStatus::Exercised).unwrap();
+
+        // Exercising a long put sells shares (from flat: short).
+        assert!((db.net_shares("AAPL").unwrap() + 100.0).abs() < 1e-9);
+        let linked = db
+            .get_all_trades()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.assigned_from == Some(put_id))
+            .unwrap();
+        assert!(!linked.action.is_buy());
+        assert!((linked.price - 90.0).abs() < 1e-9);
     }
 
     #[test]

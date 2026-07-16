@@ -199,18 +199,25 @@ Key domain rules (all enums use the `string_enum!` macro in `src/macros.rs`):
   depends only on the buy/sell side (`Action::is_buy`); open/close is
   informational.
 - **OptionType**: `call`, `put`. **OptionStatus**: `open`, `closed`,
-  `assigned`, `exercised`, `expired`. `assigned` and `exercised` are identical
-  for position math (both trigger the compound stock event);
-  `closed`/`expired` produce no linked stock row.
+  `assigned`, `exercised`, `expired`. Both `assigned` and `exercised` trigger
+  the compound stock event, but the resulting share direction depends on the
+  option's long/short side (see below); `closed`/`expired` produce no linked
+  stock row.
 - **100x multiplier**: option cash flow is `price * quantity * 100` (one
   contract = 100 shares); stock is `price * quantity`. See `Trade::multiplier`
   / `Trade::cash_flow`.
-- **Assignment/exercise is a compound event** (`Database::assign_option`): it
-  sets the option status and inserts a linked stock row at the strike
-  (`assigned_from` = option id) — put → buy `qty * 100`, call → sell
-  `qty * 100`. Late reconciliation (past expiration) is allowed. Deleting or
-  reverting the option deletes its linked rows (`delete_trade`,
-  `expire_option`, `update_trade`); linked rows are read-only in the UI.
+- **Assignment/exercise is a compound event** (`Database::assign_option` →
+  `Database::insert_linked_stock_row`): it sets the option status and inserts a
+  linked stock row at the strike (`assigned_from` = option id) for `qty * 100`
+  shares. Direction depends on option type **and** long/short side: short put
+  assigned → buy, short call assigned → sell, long put exercised → sell, long
+  call exercised → buy. Late reconciliation (past expiration) is allowed.
+  Deleting the option deletes its linked rows; editing an option re-reconciles
+  them — the linked row is regenerated while the option stays in a
+  stock-generating status and removed otherwise (`delete_trade`,
+  `expire_option`, `update_trade`). Linked rows are read-only in the UI.
+  All of these multi-write operations run inside a transaction
+  (`Connection::unchecked_transaction`).
 - **Expiration** (`Database::expire_option`) closes an option with no extra
   cash flow (premium already booked at open).
 - **Break-even** (`Database::get_break_even`) = `-(sum of all cash flows) /

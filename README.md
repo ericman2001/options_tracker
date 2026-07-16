@@ -23,8 +23,13 @@ writing a covered call below your break-even).
   View/Edit screen:
   - **Assign / Exercise**: closes the option (no extra cash flow beyond the
     premium booked at open) and auto-generates a **linked stock trade** at the
-    strike — a put buys `qty x 100` shares, a call sells `qty x 100` shares.
-    Deleting or reverting the option automatically cleans up the linked row.
+    strike for `qty x 100` shares. The buy/sell direction follows the option's
+    type and long/short side: a **short** put assigned buys shares and a short
+    call assigned sells shares; a **long** put exercised sells shares and a long
+    call exercised buys shares. Deleting the option cleans up the linked row, and
+    editing the option re-syncs it (the linked row's strike/quantity track the
+    edit, or the row is removed if the option leaves an assigned/exercised
+    status).
   - **Expire**: closes the option worthless with no cash flow (a sold option
     keeps its premium; a bought option realizes its loss — both already booked
     at open).

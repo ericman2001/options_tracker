@@ -3,7 +3,7 @@ use crate::db::{Action, Database, OptionStatus, OptionType, Trade, TradeType};
 use cursive::align::HAlign;
 use cursive::theme::{Color, PaletteColor};
 use cursive::traits::*;
-use cursive::views::{Dialog, EditView, ListView, SelectView, TextView};
+use cursive::views::{Dialog, EditView, LinearLayout, ListView, SelectView, TextView};
 use cursive::Cursive;
 use std::sync::{Arc, Mutex};
 
@@ -84,7 +84,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 .fixed_width(20),
         )
         .child(
-            "Action (buy_to_open/sell_to_open/buy_to_close/sell_to_close):",
+            "Action:",
             EditView::new()
                 .content(trade.action.to_string())
                 .with_name("action")
@@ -119,7 +119,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 .fixed_width(20),
         )
         .child(
-            "Option Type (call/put, options only):",
+            "Option Type (call/put):",
             EditView::new()
                 .content(
                     trade
@@ -132,14 +132,14 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 .fixed_width(20),
         )
         .child(
-            "Strike (options only):",
+            "Strike:",
             EditView::new()
                 .content(trade.strike.map(format_amount).unwrap_or_default())
                 .with_name("strike")
                 .fixed_width(20),
         )
         .child(
-            "Expiration (YYYY-MM-DD, options only):",
+            "Expiration (YYYY-MM-DD):",
             EditView::new()
                 .content(trade.expiration.clone().unwrap_or_default())
                 .with_name("expiration")
@@ -158,8 +158,16 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
     let existing_assigned_from = trade.assigned_from;
     let db_clone = db.clone();
 
+    let help = TextView::new(
+        "Action: buy_to_open, sell_to_open, buy_to_close, sell_to_close\n\
+         Option Type / Strike / Expiration are required only when Type is 'option'.",
+    );
+    let body = LinearLayout::vertical()
+        .child(help)
+        .child(form.scrollable().fixed_size((56, 18)));
+
     siv.add_layer(
-        Dialog::around(form.scrollable().fixed_size((60, 22)))
+        Dialog::around(body)
             .title(title)
             .button("Save", move |s| {
                 let parsed = match read_and_validate_form(s) {

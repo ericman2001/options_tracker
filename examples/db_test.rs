@@ -1,4 +1,4 @@
-use options_tracker::db::{Action, Database, Trade, TradeType};
+use options_tracker::db::{Action, Database, OptionStatus, OptionType, Trade, TradeType};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing Stock Options Tracker Database...\n");
@@ -9,15 +9,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test adding a trade
     let trade1 = Trade {
-        id: None,
         symbol: "AAPL".to_string(),
         trade_type: TradeType::Stock,
-        action: Action::Buy,
+        action: Action::BuyToOpen,
         price: 150.50,
         quantity: 100.0,
         date: "2024-01-15".to_string(),
         fees: 5.00,
         comment: "Initial purchase".to_string(),
+        ..Default::default()
     };
 
     let id1 = db.add_trade(&trade1)?;
@@ -25,15 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add another trade
     let trade2 = Trade {
-        id: None,
         symbol: "AAPL".to_string(),
         trade_type: TradeType::Stock,
-        action: Action::Sell,
+        action: Action::SellToClose,
         price: 165.75,
         quantity: 100.0,
         date: "2024-02-15".to_string(),
         fees: 5.00,
         comment: "Sold for profit".to_string(),
+        ..Default::default()
     };
 
     let id2 = db.add_trade(&trade2)?;
@@ -41,15 +41,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add a trade for a different symbol
     let trade3 = Trade {
-        id: None,
         symbol: "TSLA".to_string(),
         trade_type: TradeType::Option,
-        action: Action::Buy,
+        action: Action::BuyToOpen,
         price: 50.00,
         quantity: 10.0,
         date: "2024-03-01".to_string(),
         fees: 2.50,
         comment: "Call option".to_string(),
+        option_type: Some(OptionType::Call),
+        strike: Some(250.0),
+        expiration: Some("2024-06-21".to_string()),
+        status: Some(OptionStatus::Open),
+        ..Default::default()
     };
 
     let id3 = db.add_trade(&trade3)?;
@@ -74,8 +78,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate report
     let reports = db.get_report_by_symbol()?;
     println!("\n✓ Generated reports for {} symbols:", reports.len());
-    for (symbol, profit_loss, count) in reports {
-        println!("  - {}: ${:.2} ({} trades)", symbol, profit_loss, count);
+    for report in reports {
+        println!(
+            "  - {}: ${:.2} ({} trades, {})",
+            report.symbol,
+            report.profit_loss,
+            report.trade_count,
+            report
+                .break_even
+                .map(|b| format!("break-even ${:.2}", b))
+                .unwrap_or_else(|| "flat".to_string()),
+        );
     }
 
     // Test deleting a trade

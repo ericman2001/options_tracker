@@ -4,26 +4,43 @@ A terminal-based stock and options trading tracker built with Rust, featuring a 
 
 ## Features
 
+This app is geared toward the **wheel** options strategy: it tracks both the
+underlying stock and option legs, and helps you avoid common pitfalls (notably
+writing a covered call below your break-even).
+
 - **Trade Entry**: Enter both stock and option trades with full details
   - Stock symbol
   - Trade type (stock or option)
-  - Action (buy or sell, including short sells)
-  - Price per unit
-  - Quantity
-  - Date of transaction
-  - Fees paid
-  - Comment/notes field
+  - Action with open/close semantics: `buy_to_open`, `sell_to_open`,
+    `buy_to_close`, `sell_to_close`. On stock, `sell_to_open`/`buy_to_close`
+    represent opening and covering a short position.
+  - Price per unit, Quantity, Date, Fees, Comment
+  - Option legs additionally capture Option Type (`call`/`put`), Strike, and
+    Expiration (`YYYY-MM-DD`)
+
+- **Option Lifecycle**: Each option carries a status — `open`, `closed`,
+  `assigned`, `exercised`, or `expired` — with lifecycle actions in the
+  View/Edit screen:
+  - **Assign / Exercise**: closes the option (no extra cash flow beyond the
+    premium booked at open) and auto-generates a **linked stock trade** at the
+    strike — a put buys `qty x 100` shares, a call sells `qty x 100` shares.
+    Deleting or reverting the option automatically cleans up the linked row.
+  - **Expire**: closes the option worthless with no cash flow (a sold option
+    keeps its premium; a bought option realizes its loss — both already booked
+    at open).
+  - Open options past their expiration are flagged with a **non-blocking
+    alert** prompting you to resolve them (never auto-resolved). Days-to-
+    expiration (DTE) is shown per option.
 
 - **Trade Management**: Review and edit past trades
-  - View all trades in a list format
-  - Edit existing trades
-  - Delete trades
+  - View all trades in a list format (options show type/strike/expiration/status/DTE)
+  - Edit, delete, or run lifecycle actions on trades
   - Trades are sorted by date (most recent first)
 
 - **Reports**: Generate profit/loss reports by symbol
-  - See total profit/loss for each stock symbol
+  - Total profit/loss for each symbol (options use the 100x contract multiplier)
+  - Current net share position (long/short/flat) and per-underlying break-even
   - Number of trades per symbol
-  - Easy-to-read text format
 
 ## Technology Stack
 
@@ -67,13 +84,18 @@ The application uses an intuitive dialog-based interface:
 2. Fill in the required fields:
    - **Symbol**: Stock ticker (e.g., AAPL, TSLA)
    - **Type**: Enter "stock" or "option"
-   - **Action**: Enter "buy" or "sell"
-   - **Price**: Price per unit (e.g., 150.50)
-   - **Quantity**: Number of shares/contracts (e.g., 100)
+   - **Action**: `buy_to_open`, `sell_to_open`, `buy_to_close`, or `sell_to_close`
+   - **Price**: Price per unit (per share; for options this is the premium per share)
+   - **Quantity**: Number of shares (stock) or contracts (option)
    - **Date**: Transaction date in YYYY-MM-DD format (e.g., 2024-01-15)
    - **Fees**: Transaction fees (e.g., 5.00)
+   - **Option Type / Strike / Expiration**: required when Type is "option"
    - **Comment**: Optional notes
 3. Click "Save" or press the keyboard shortcut to save
+
+When you sell-to-open a **call** whose strike is below the underlying's current
+break-even, a non-blocking warning appears ("Save Anyway" / "Cancel") because
+assignment would lock in a loss.
 
 ### Editing Trades
 
@@ -104,16 +126,38 @@ The application uses an intuitive dialog-based interface:
 
 The application stores all data in a local SQLite database file named `options_tracker.db` in the directory where you run the application. This file is automatically created on first run.
 
+Dates and expirations are stored as ISO 8601 `YYYY-MM-DD` in SQLite `TEXT`
+columns. SQLite has **no native date type**; zero-padded ISO text is the
+idiomatic choice because it sorts chronologically (`ORDER BY date DESC`) and is
+exactly what the UI displays — so we do not convert dates to `INTEGER`/`REAL`.
+
+"Today" and days-to-expiration are derived purely from `std::time` (no `chrono`
+or `time` dependency): the system clock is converted to a Unix day count and
+then to a civil `(year, month, day)` via Howard Hinnant's integer
+`civil_from_days` algorithm. This date is **UTC-based**, which is acceptable
+because it only drives the non-blocking expiration alert and DTE display.
+
 ## Profit/Loss Calculation
 
-The profit/loss calculation follows this logic:
-- **Buy transactions**: -(price × quantity) - fees (money spent)
-- **Sell transactions**: (price × quantity) - fees (money received)
-- **Total P/L**: Sum of all transactions for a symbol
+Each trade contributes a signed cash flow:
+- **Buy (`*_to_open`/`*_to_close`)**: `-(price × quantity × multiplier) - fees`
+- **Sell (`*_to_open`/`*_to_close`)**: `(price × quantity × multiplier) - fees`
+- **multiplier**: `100` for options (one contract = 100 shares), `1` for stock
+- **Total P/L**: sum of all cash flows for a symbol
+
+Assigned/exercised and expired options add no cash flow at their terminal event
+(the premium was booked when the option was opened; for assignment the linked
+stock row carries the strike cash flow).
+
+**Break-even** for a symbol's net share position is derived from the whole
+ledger as `-(sum of all cash flows) / net_shares`, which folds in collected
+option premium and all fees. It works for both long and short positions and is
+`None` when the position is flat.
 
 This allows tracking of:
 - Long positions (buy low, sell high)
 - Short positions (sell high, buy low)
+- Cash-secured puts and covered calls across the full wheel cycle
 - Partial positions and multiple entries/exits
 
 ## License

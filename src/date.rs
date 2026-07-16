@@ -79,10 +79,27 @@ pub fn parse_unix_day(date: &str) -> Option<i64> {
     let year = parts[0].parse::<i64>().ok()?;
     let month = parts[1].parse::<u32>().ok()?;
     let day = parts[2].parse::<u32>().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
         return None;
     }
     Some(days_from_civil(year, month, day))
+}
+
+/// Number of days in a given month, accounting for leap years. Returns 0 for an
+/// out-of-range month.
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+/// Proleptic Gregorian leap-year test.
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 /// Days-to-expiration: number of days from `today` (ISO) until `expiration`
@@ -148,6 +165,20 @@ mod tests {
         assert_eq!(parse_unix_day("2024/02/09"), None);
         assert_eq!(parse_unix_day("not-a-date"), None);
         assert_eq!(parse_unix_day("2024-13-01"), None);
+    }
+
+    #[test]
+    fn parse_unix_day_rejects_calendar_invalid_days() {
+        // Day-vs-month validity, not just 1..=31.
+        assert_eq!(parse_unix_day("2024-02-31"), None);
+        assert_eq!(parse_unix_day("2024-04-31"), None);
+        assert_eq!(parse_unix_day("2023-02-29"), None); // 2023 is not a leap year
+        assert_eq!(parse_unix_day("2024-02-29"), Some(19_782)); // leap day is valid
+        assert_eq!(parse_unix_day("2024-01-00"), None);
+        assert_eq!(
+            parse_unix_day("2024-04-30"),
+            Some(days_from_civil(2024, 4, 30))
+        );
     }
 
     #[test]

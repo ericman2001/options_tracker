@@ -207,10 +207,13 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                     && parsed.trade_type == TradeType::Option
                     && parsed.option_type == Some(OptionType::Call)
                 {
+                    // Exclude the option being edited so its pre-edit premium
+                    // doesn't skew the threshold (no-op for a brand-new trade,
+                    // whose id is None).
                     let break_even = db_clone
                         .lock()
                         .expect("Failed to lock database")
-                        .get_break_even(&parsed.symbol)
+                        .get_break_even_excluding(&parsed.symbol, trade_id)
                         .ok()
                         .flatten();
                     if let (Some(be), Some(strike)) = (break_even, parsed.strike) {
@@ -625,12 +628,18 @@ fn format_trade_row(trade: &Trade, today: &str) -> String {
             .unwrap_or_else(|| "?".to_string());
         let expiration = trade.expiration.clone().unwrap_or_default();
         let status = trade.status.as_ref().map(|s| s.as_str()).unwrap_or("open");
-        let dte = trade
-            .expiration
-            .as_ref()
-            .and_then(|exp| days_to_expiration(today, exp))
-            .map(format_dte)
-            .unwrap_or_default();
+        // DTE is only meaningful for an open option; resolved statuses
+        // (closed/assigned/exercised/expired) shouldn't show a countdown.
+        let dte = if status == "open" {
+            trade
+                .expiration
+                .as_ref()
+                .and_then(|exp| days_to_expiration(today, exp))
+                .map(format_dte)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
 
         let mut extra = format!(" [{} {} exp {} {}", option_type, strike, expiration, status);
         if !dte.is_empty() {

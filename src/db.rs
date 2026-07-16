@@ -427,10 +427,23 @@ impl Database {
     /// collected option premium and all fees, so it works for both long and
     /// short positions. Returns `None` when the net position is flat.
     pub fn get_break_even(&self, symbol: &str) -> Result<Option<f64>> {
+        self.get_break_even_excluding(symbol, None)
+    }
+
+    /// Like [`get_break_even`], but ignores the trade whose id equals
+    /// `exclude_id` (if any). Used by the covered-call warning when *editing* an
+    /// option: the pre-edit version of the option being saved is still in the
+    /// ledger, and since option premium folds into break-even it would otherwise
+    /// skew the warning threshold. Pass `None` to include every trade.
+    pub fn get_break_even_excluding(
+        &self,
+        symbol: &str,
+        exclude_id: Option<i64>,
+    ) -> Result<Option<f64>> {
         let trades: Vec<Trade> = self
             .get_all_trades()?
             .into_iter()
-            .filter(|t| t.symbol == symbol)
+            .filter(|t| t.symbol == symbol && (exclude_id.is_none() || t.id != exclude_id))
             .collect();
         let net_shares: f64 = trades.iter().map(Trade::signed_shares).sum();
         if net_shares.abs() < f64::EPSILON {
@@ -914,6 +927,50 @@ mod tests {
         // one at 105 is safely above.
         assert!(95.0 < be);
         assert!(105.0 > be);
+    }
+
+    #[test]
+    fn break_even_excluding_ignores_the_named_trade() {
+        let db = new_test_db();
+        // Long 100 @ $100 via assigned put (premium $2 → break-even 98).
+        let put_id = db
+            .add_trade(&option(
+                "AAPL",
+                Action::SellToOpen,
+                OptionType::Put,
+                2.0,
+                1.0,
+                100.0,
+                "2024-06-21",
+            ))
+            .unwrap();
+        db.assign_option(put_id, OptionStatus::Assigned).unwrap();
+        // Add an open call whose $5 premium would drag break-even down.
+        let call_id = db
+            .add_trade(&option(
+                "AAPL",
+                Action::SellToOpen,
+                OptionType::Call,
+                5.0,
+                1.0,
+                105.0,
+                "2024-07-19",
+            ))
+            .unwrap();
+
+        let with_call = db.get_break_even("AAPL").unwrap().unwrap();
+        let without_call = db
+            .get_break_even_excluding("AAPL", Some(call_id))
+            .unwrap()
+            .unwrap();
+        // Excluding the call's premium raises the break-even back toward 98.
+        assert!(without_call > with_call);
+        assert!((without_call - 98.0).abs() < 1e-9);
+        // Excluding None matches the plain break-even.
+        assert_eq!(
+            db.get_break_even_excluding("AAPL", None).unwrap(),
+            Some(with_call)
+        );
     }
 
     #[test]

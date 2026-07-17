@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
 cursive = { version = "0.21", default-features = false, features = ["crossterm-backend"] }
+rust_decimal = "1"
+rust_decimal_macros = "1"

@@ -187,3 +187,57 @@ impl From<TradeType> for String {
 - Document complex logic briefly
 - Avoid redundant comments
 - Use clear variable and function names to reduce need for comments
+
+## Domain Model (wheel-strategy tracker)
+
+The app tracks stock and option trades to support the options "wheel" strategy.
+Key domain rules (all enums use the `string_enum!` macro in `src/macros.rs`):
+
+- **Action** has open/close semantics for both stock and options:
+  `buy_to_open`, `sell_to_open`, `buy_to_close`, `sell_to_close`. On stock,
+  `sell_to_open`/`buy_to_close` open and cover a short. Cash-flow direction
+  depends only on the buy/sell side (`Action::is_buy`); open/close is
+  informational.
+- **OptionType**: `call`, `put`. **OptionStatus**: `open`, `closed`,
+  `assigned`, `exercised`, `expired`. Both `assigned` and `exercised` trigger
+  the compound stock event, but the resulting share direction depends on the
+  option's long/short side (see below); `closed`/`expired` produce no linked
+  stock row.
+- **100x multiplier**: option cash flow is `price * quantity * 100` (one
+  contract = 100 shares); stock is `price * quantity`. See `Trade::multiplier`
+  / `Trade::cash_flow`.
+- **Assignment/exercise is a compound event** (`Database::assign_option` →
+  `Database::insert_linked_stock_row`): it sets the option status and inserts a
+  linked stock row at the strike (`assigned_from` = option id) for `qty * 100`
+  shares. Direction depends on option type **and** long/short side: short put
+  assigned → buy, short call assigned → sell, long put exercised → sell, long
+  call exercised → buy. Late reconciliation (past expiration) is allowed.
+  Deleting the option deletes its linked rows; editing an option re-reconciles
+  them — the linked row is regenerated while the option stays in a
+  stock-generating status and removed otherwise (`delete_trade`,
+  `expire_option`, `update_trade`). Linked rows are read-only in the UI.
+  All of these multi-write operations run inside a transaction
+  (`Connection::unchecked_transaction`).
+- **Expiration** (`Database::expire_option`) closes an option with no extra
+  cash flow (premium already booked at open).
+- **Break-even** (`Database::get_break_even`) = `-(sum of all cash flows) /
+  net_shares`, folding in premium and fees; `None` when flat.
+- **Covered-call warning**: selling a call (`sell_to_open`) below break-even
+  shows a non-blocking "Save Anyway"/"Cancel" dialog (distinct from the
+  early-return `Dialog::info` used for validation errors).
+
+## Dates
+
+- No date crate (`chrono`/`time`). Dates and expirations are stored as ISO 8601
+  `YYYY-MM-DD` in SQLite `TEXT`. SQLite has no native date type; zero-padded ISO
+  text sorts chronologically and is what the UI displays — do **not** convert to
+  `INTEGER`/`REAL`.
+- `src/date.rs` derives "today" and days-to-expiration from `std::time` only,
+  via Howard Hinnant's integer `civil_from_days`/`days_from_civil`. The civil
+  date is **UTC-based**, acceptable because it only drives the non-blocking
+  expiration alert and DTE display.
+
+## No backwards compatibility
+
+There are no real users. Redefine the schema directly in `Database::init_schema`
+and delete any existing `options_tracker.db` rather than writing migrations.

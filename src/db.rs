@@ -1,4 +1,25 @@
+use rusqlite::types::Type;
 use rusqlite::{params, Connection, OptionalExtension, Result};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+use std::str::FromStr;
+
+/// Reads a required `Decimal` stored as TEXT from the given column.
+fn decimal_from_row(row: &rusqlite::Row<'_>, idx: usize) -> Result<Decimal> {
+    let raw: String = row.get(idx)?;
+    Decimal::from_str(&raw)
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e)))
+}
+
+/// Reads an optional `Decimal` stored as TEXT from the given column.
+fn opt_decimal_from_row(row: &rusqlite::Row<'_>, idx: usize) -> Result<Option<Decimal>> {
+    match row.get::<_, Option<String>>(idx)? {
+        Some(raw) => Decimal::from_str(&raw)
+            .map(Some)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e))),
+        None => Ok(None),
+    }
+}
 
 string_enum! {
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,7 +84,7 @@ impl OptionStatus {
 }
 
 /// Number of shares represented by a single option contract.
-pub const OPTION_MULTIPLIER: f64 = 100.0;
+pub const OPTION_MULTIPLIER: Decimal = dec!(100);
 
 #[derive(Debug, Clone)]
 pub struct Trade {
@@ -71,14 +92,14 @@ pub struct Trade {
     pub symbol: String,
     pub trade_type: TradeType,
     pub action: Action,
-    pub price: f64,
-    pub quantity: f64,
+    pub price: Decimal,
+    pub quantity: Decimal,
     pub date: String,
-    pub fees: f64,
+    pub fees: Decimal,
     pub comment: String,
     // Option-only fields; all `None` for plain stock trades.
     pub option_type: Option<OptionType>,
-    pub strike: Option<f64>,
+    pub strike: Option<Decimal>,
     pub expiration: Option<String>,
     pub status: Option<OptionStatus>,
     /// Links an auto-generated stock row back to the option that produced it via
@@ -93,10 +114,10 @@ impl Default for Trade {
             symbol: String::new(),
             trade_type: TradeType::Stock,
             action: Action::BuyToOpen,
-            price: 0.0,
-            quantity: 0.0,
+            price: Decimal::ZERO,
+            quantity: Decimal::ZERO,
             date: String::new(),
-            fees: 0.0,
+            fees: Decimal::ZERO,
             comment: String::new(),
             option_type: None,
             strike: None,
@@ -110,16 +131,16 @@ impl Default for Trade {
 impl Trade {
     /// Shares per unit for this trade: [`OPTION_MULTIPLIER`] for options, 1 for
     /// stock. Used for cash-flow and share-ledger math.
-    pub fn multiplier(&self) -> f64 {
+    pub fn multiplier(&self) -> Decimal {
         match self.trade_type {
             TradeType::Option => OPTION_MULTIPLIER,
-            TradeType::Stock => 1.0,
+            TradeType::Stock => Decimal::ONE,
         }
     }
 
     /// Signed cash flow of this trade: positive when cash comes in (sell),
     /// negative when cash goes out (buy). Fees always reduce cash.
-    pub fn cash_flow(&self) -> f64 {
+    pub fn cash_flow(&self) -> Decimal {
         let gross = self.price * self.quantity * self.multiplier();
         if self.action.is_buy() {
             -gross - self.fees
@@ -130,9 +151,9 @@ impl Trade {
 
     /// Signed share count contributed to a symbol's ledger by a stock trade:
     /// positive for buys, negative for sells. Options hold no shares (0).
-    pub fn signed_shares(&self) -> f64 {
+    pub fn signed_shares(&self) -> Decimal {
         if self.trade_type != TradeType::Stock {
-            return 0.0;
+            return Decimal::ZERO;
         }
         if self.action.is_buy() {
             self.quantity
@@ -146,12 +167,12 @@ impl Trade {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SymbolReport {
     pub symbol: String,
-    pub profit_loss: f64,
+    pub profit_loss: Decimal,
     pub trade_count: i32,
     /// Net share position: positive = long, negative = short, 0 = flat.
-    pub net_shares: f64,
+    pub net_shares: Decimal,
     /// Break-even price for the current net share position, or `None` when flat.
-    pub break_even: Option<f64>,
+    pub break_even: Option<Decimal>,
 }
 
 pub struct Database {
@@ -173,13 +194,13 @@ impl Database {
                 symbol TEXT NOT NULL,
                 trade_type TEXT NOT NULL,
                 action TEXT NOT NULL,
-                price REAL NOT NULL,
-                quantity REAL NOT NULL,
+                price TEXT NOT NULL,
+                quantity TEXT NOT NULL,
                 date TEXT NOT NULL,
-                fees REAL NOT NULL,
+                fees TEXT NOT NULL,
                 comment TEXT,
                 option_type TEXT,
-                strike REAL,
+                strike TEXT,
                 expiration TEXT,
                 status TEXT,
                 assigned_from INTEGER
@@ -199,13 +220,13 @@ impl Database {
                 trade.symbol,
                 trade.trade_type,
                 trade.action,
-                trade.price,
-                trade.quantity,
+                trade.price.to_string(),
+                trade.quantity.to_string(),
                 trade.date,
-                trade.fees,
+                trade.fees.to_string(),
                 trade.comment,
                 trade.option_type,
-                trade.strike,
+                trade.strike.map(|d| d.to_string()),
                 trade.expiration,
                 trade.status,
                 trade.assigned_from,
@@ -220,13 +241,13 @@ impl Database {
             symbol: row.get(1)?,
             trade_type: row.get(2)?,
             action: row.get(3)?,
-            price: row.get(4)?,
-            quantity: row.get(5)?,
+            price: decimal_from_row(row, 4)?,
+            quantity: decimal_from_row(row, 5)?,
             date: row.get(6)?,
-            fees: row.get(7)?,
+            fees: decimal_from_row(row, 7)?,
             comment: row.get(8)?,
             option_type: row.get(9)?,
-            strike: row.get(10)?,
+            strike: opt_decimal_from_row(row, 10)?,
             expiration: row.get(11)?,
             status: row.get(12)?,
             assigned_from: row.get(13)?,
@@ -267,13 +288,13 @@ impl Database {
                     trade.symbol,
                     trade.trade_type,
                     trade.action,
-                    trade.price,
-                    trade.quantity,
+                    trade.price.to_string(),
+                    trade.quantity.to_string(),
                     trade.date,
-                    trade.fees,
+                    trade.fees.to_string(),
                     trade.comment,
                     trade.option_type,
-                    trade.strike,
+                    trade.strike.map(|d| d.to_string()),
                     trade.expiration,
                     trade.status,
                     trade.assigned_from,
@@ -386,7 +407,7 @@ impl Database {
             price: strike,
             quantity: option.quantity * OPTION_MULTIPLIER,
             date: option.expiration.clone().unwrap_or_else(crate::date::today),
-            fees: 0.0,
+            fees: Decimal::ZERO,
             comment: format!("Auto: {} {} of option #{}", option_type, status, option_id),
             option_type: None,
             strike: None,
@@ -413,7 +434,7 @@ impl Database {
 
     /// Net signed share position for a symbol (long > 0, short < 0), summed over
     /// stock trades (including assignment-generated rows).
-    pub fn net_shares(&self, symbol: &str) -> Result<f64> {
+    pub fn net_shares(&self, symbol: &str) -> Result<Decimal> {
         Ok(self
             .get_all_trades()?
             .iter()
@@ -426,7 +447,7 @@ impl Database {
     /// the full ledger: `-(sum of all cash flows) / net_shares`. This folds in
     /// collected option premium and all fees, so it works for both long and
     /// short positions. Returns `None` when the net position is flat.
-    pub fn get_break_even(&self, symbol: &str) -> Result<Option<f64>> {
+    pub fn get_break_even(&self, symbol: &str) -> Result<Option<Decimal>> {
         self.get_break_even_excluding(symbol, None)
     }
 
@@ -439,17 +460,17 @@ impl Database {
         &self,
         symbol: &str,
         exclude_id: Option<i64>,
-    ) -> Result<Option<f64>> {
+    ) -> Result<Option<Decimal>> {
         let trades: Vec<Trade> = self
             .get_all_trades()?
             .into_iter()
             .filter(|t| t.symbol == symbol && (exclude_id.is_none() || t.id != exclude_id))
             .collect();
-        let net_shares: f64 = trades.iter().map(Trade::signed_shares).sum();
-        if net_shares.abs() < f64::EPSILON {
+        let net_shares: Decimal = trades.iter().map(Trade::signed_shares).sum();
+        if net_shares == Decimal::ZERO {
             return Ok(None);
         }
-        let total_cash_flow: f64 = trades.iter().map(Trade::cash_flow).sum();
+        let total_cash_flow: Decimal = trades.iter().map(Trade::cash_flow).sum();
         Ok(Some(-total_cash_flow / net_shares))
     }
 
@@ -462,8 +483,8 @@ impl Database {
         let mut reports = Vec::with_capacity(symbols.len());
         for symbol in symbols {
             let symbol_trades: Vec<&Trade> = trades.iter().filter(|t| t.symbol == symbol).collect();
-            let profit_loss: f64 = symbol_trades.iter().map(|t| t.cash_flow()).sum();
-            let net_shares: f64 = symbol_trades.iter().map(|t| t.signed_shares()).sum();
+            let profit_loss: Decimal = symbol_trades.iter().map(|t| t.cash_flow()).sum();
+            let net_shares: Decimal = symbol_trades.iter().map(|t| t.signed_shares()).sum();
             let trade_count = symbol_trades.len() as i32;
             let break_even = self.get_break_even(&symbol)?;
             reports.push(SymbolReport {
@@ -486,7 +507,13 @@ mod tests {
         Database::new(":memory:").expect("failed to create in-memory database")
     }
 
-    fn stock(symbol: &str, action: Action, price: f64, quantity: f64, fees: f64) -> Trade {
+    fn stock(
+        symbol: &str,
+        action: Action,
+        price: Decimal,
+        quantity: Decimal,
+        fees: Decimal,
+    ) -> Trade {
         Trade {
             symbol: symbol.to_string(),
             trade_type: TradeType::Stock,
@@ -503,9 +530,9 @@ mod tests {
         symbol: &str,
         action: Action,
         option_type: OptionType,
-        price: f64,
-        quantity: f64,
-        strike: f64,
+        price: Decimal,
+        quantity: Decimal,
+        strike: Decimal,
         expiration: &str,
     ) -> Trade {
         Trade {
@@ -515,7 +542,7 @@ mod tests {
             price,
             quantity,
             date: "2024-01-15".to_string(),
-            fees: 0.0,
+            fees: Decimal::ZERO,
             option_type: Some(option_type),
             strike: Some(strike),
             expiration: Some(expiration.to_string()),
@@ -557,15 +584,21 @@ mod tests {
             "AAPL",
             Action::SellToOpen,
             OptionType::Put,
-            2.0,
-            1.0,
-            100.0,
+            dec!(2.0),
+            dec!(1.0),
+            dec!(100.0),
             "2024-06-21",
         );
-        assert!((sold_put.cash_flow() - 200.0).abs() < 1e-9);
+        assert_eq!(sold_put.cash_flow(), dec!(200));
         // Stock keeps a 1x multiplier.
-        let bought = stock("AAPL", Action::BuyToOpen, 100.0, 10.0, 0.0);
-        assert!((bought.cash_flow() + 1000.0).abs() < 1e-9);
+        let bought = stock(
+            "AAPL",
+            Action::BuyToOpen,
+            dec!(100.0),
+            dec!(10.0),
+            dec!(0.0),
+        );
+        assert_eq!(bought.cash_flow(), dec!(-1000));
     }
 
     #[test]
@@ -575,9 +608,9 @@ mod tests {
             "AAPL",
             Action::SellToOpen,
             OptionType::Put,
-            2.0,
-            1.0,
-            100.0,
+            dec!(2.0),
+            dec!(1.0),
+            dec!(100.0),
             "2024-06-21",
         );
         let id = db.add_trade(&opt).unwrap();
@@ -585,7 +618,7 @@ mod tests {
         assert_eq!(stored.symbol, "AAPL");
         assert!(matches!(stored.action, Action::SellToOpen));
         assert_eq!(stored.option_type, Some(OptionType::Put));
-        assert_eq!(stored.strike, Some(100.0));
+        assert_eq!(stored.strike, Some(dec!(100.0)));
         assert_eq!(stored.expiration, Some("2024-06-21".to_string()));
         assert_eq!(stored.status, Some(OptionStatus::Open));
         assert_eq!(stored.assigned_from, None);
@@ -600,18 +633,18 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                1.0,
-                100.0,
+                dec!(2.0),
+                dec!(1.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
         db.assign_option(put_id, OptionStatus::Assigned).unwrap();
 
         // Long 100 shares, break-even = 100 - 2 = 98.
-        assert!((db.net_shares("AAPL").unwrap() - 100.0).abs() < 1e-9);
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(100));
         let be = db.get_break_even("AAPL").unwrap().unwrap();
-        assert!((be - 98.0).abs() < 1e-9);
+        assert_eq!(be, dec!(98));
     }
 
     #[test]
@@ -622,9 +655,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                2.0,
-                100.0,
+                dec!(2.0),
+                dec!(2.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -641,8 +674,8 @@ mod tests {
         assert_eq!(linked.len(), 1);
         assert_eq!(linked[0].trade_type, TradeType::Stock);
         assert!(linked[0].action.is_buy());
-        assert!((linked[0].quantity - 200.0).abs() < 1e-9); // 2 contracts * 100
-        assert!((linked[0].price - 100.0).abs() < 1e-9);
+        assert_eq!(linked[0].quantity, dec!(200)); // 2 contracts * 100
+        assert_eq!(linked[0].price, dec!(100));
     }
 
     #[test]
@@ -653,16 +686,16 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Call,
-                1.0,
-                1.0,
-                110.0,
+                dec!(1.0),
+                dec!(1.0),
+                dec!(110.0),
                 "2024-06-21",
             ))
             .unwrap();
         db.assign_option(call_id, OptionStatus::Assigned).unwrap();
 
         // From flat, an assigned call yields a short position.
-        assert!((db.net_shares("AAPL").unwrap() + 100.0).abs() < 1e-9);
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(-100));
         let linked = db
             .get_all_trades()
             .unwrap()
@@ -681,16 +714,16 @@ mod tests {
                 "AAPL",
                 Action::BuyToOpen,
                 OptionType::Call,
-                1.0,
-                1.0,
-                110.0,
+                dec!(1.0),
+                dec!(1.0),
+                dec!(110.0),
                 "2024-06-21",
             ))
             .unwrap();
         db.assign_option(call_id, OptionStatus::Exercised).unwrap();
 
         // Exercising a long call buys shares (from flat: long).
-        assert!((db.net_shares("AAPL").unwrap() - 100.0).abs() < 1e-9);
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(100));
         let linked = db
             .get_all_trades()
             .unwrap()
@@ -698,7 +731,7 @@ mod tests {
             .find(|t| t.assigned_from == Some(call_id))
             .unwrap();
         assert!(linked.action.is_buy());
-        assert!((linked.price - 110.0).abs() < 1e-9);
+        assert_eq!(linked.price, dec!(110));
     }
 
     #[test]
@@ -710,16 +743,16 @@ mod tests {
                 "AAPL",
                 Action::BuyToOpen,
                 OptionType::Put,
-                1.0,
-                1.0,
-                90.0,
+                dec!(1.0),
+                dec!(1.0),
+                dec!(90.0),
                 "2024-06-21",
             ))
             .unwrap();
         db.assign_option(put_id, OptionStatus::Exercised).unwrap();
 
         // Exercising a long put sells shares (from flat: short).
-        assert!((db.net_shares("AAPL").unwrap() + 100.0).abs() < 1e-9);
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(-100));
         let linked = db
             .get_all_trades()
             .unwrap()
@@ -727,29 +760,35 @@ mod tests {
             .find(|t| t.assigned_from == Some(put_id))
             .unwrap();
         assert!(!linked.action.is_buy());
-        assert!((linked.price - 90.0).abs() < 1e-9);
+        assert_eq!(linked.price, dec!(90));
     }
 
     #[test]
     fn assignment_shrinks_existing_long_position() {
         let db = new_test_db();
         // Own 100 shares long, then a covered call gets assigned → sell 100.
-        db.add_trade(&stock("AAPL", Action::BuyToOpen, 90.0, 100.0, 0.0))
-            .unwrap();
+        db.add_trade(&stock(
+            "AAPL",
+            Action::BuyToOpen,
+            dec!(90.0),
+            dec!(100.0),
+            dec!(0.0),
+        ))
+        .unwrap();
         let call_id = db
             .add_trade(&option(
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Call,
-                1.0,
-                1.0,
-                110.0,
+                dec!(1.0),
+                dec!(1.0),
+                dec!(110.0),
                 "2024-06-21",
             ))
             .unwrap();
         db.assign_option(call_id, OptionStatus::Assigned).unwrap();
         // 100 long - 100 sold = flat.
-        assert!(db.net_shares("AAPL").unwrap().abs() < 1e-9);
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(0));
         assert_eq!(db.get_break_even("AAPL").unwrap(), None);
     }
 
@@ -761,9 +800,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                1.0,
-                100.0,
+                dec!(2.0),
+                dec!(1.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -782,9 +821,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                1.0,
-                100.0,
+                dec!(2.0),
+                dec!(1.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -794,7 +833,7 @@ mod tests {
         let trades = db.get_all_trades().unwrap();
         assert_eq!(trades.len(), 1);
         assert_eq!(trades[0].status, Some(OptionStatus::Expired));
-        assert!(db.net_shares("AAPL").unwrap().abs() < 1e-9);
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(0));
     }
 
     #[test]
@@ -806,9 +845,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Call,
-                3.0,
-                1.0,
-                110.0,
+                dec!(3.0),
+                dec!(1.0),
+                dec!(110.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -817,8 +856,8 @@ mod tests {
         let report = db.get_report_by_symbol().unwrap();
         assert_eq!(report.len(), 1);
         // Premium kept as profit; no linked stock row created.
-        assert!((report[0].profit_loss - 300.0).abs() < 1e-9);
-        assert!(report[0].net_shares.abs() < 1e-9);
+        assert_eq!(report[0].profit_loss, dec!(300));
+        assert_eq!(report[0].net_shares, dec!(0));
         assert!(db
             .get_all_trades()
             .unwrap()
@@ -834,9 +873,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                1.0,
-                100.0,
+                dec!(2.0),
+                dec!(1.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -844,8 +883,8 @@ mod tests {
 
         // Edit the assigned option's strike and quantity while keeping it assigned.
         let mut edited = db.get_trade(put_id).unwrap().unwrap();
-        edited.strike = Some(90.0);
-        edited.quantity = 2.0;
+        edited.strike = Some(dec!(90.0));
+        edited.quantity = dec!(2.0);
         db.update_trade(&edited).unwrap();
 
         let linked: Vec<Trade> = db
@@ -855,9 +894,9 @@ mod tests {
             .filter(|t| t.assigned_from == Some(put_id))
             .collect();
         assert_eq!(linked.len(), 1);
-        assert!((linked[0].price - 90.0).abs() < 1e-9);
-        assert!((linked[0].quantity - 200.0).abs() < 1e-9); // 2 contracts * 100
-        assert!((db.net_shares("AAPL").unwrap() - 200.0).abs() < 1e-9);
+        assert_eq!(linked[0].price, dec!(90));
+        assert_eq!(linked[0].quantity, dec!(200)); // 2 contracts * 100
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(200));
     }
 
     #[test]
@@ -868,9 +907,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                1.0,
-                100.0,
+                dec!(2.0),
+                dec!(1.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -898,11 +937,17 @@ mod tests {
     fn break_even_short_position() {
         let db = new_test_db();
         // Short 100 shares at $50 (no fees). Break-even = 50.
-        db.add_trade(&stock("AAPL", Action::SellToOpen, 50.0, 100.0, 0.0))
-            .unwrap();
-        assert!((db.net_shares("AAPL").unwrap() + 100.0).abs() < 1e-9);
+        db.add_trade(&stock(
+            "AAPL",
+            Action::SellToOpen,
+            dec!(50.0),
+            dec!(100.0),
+            dec!(0.0),
+        ))
+        .unwrap();
+        assert_eq!(db.net_shares("AAPL").unwrap(), dec!(-100));
         let be = db.get_break_even("AAPL").unwrap().unwrap();
-        assert!((be - 50.0).abs() < 1e-9);
+        assert_eq!(be, dec!(50));
     }
 
     #[test]
@@ -914,9 +959,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                1.0,
-                100.0,
+                dec!(2.0),
+                dec!(1.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -925,8 +970,8 @@ mod tests {
         let be = db.get_break_even("AAPL").unwrap().unwrap();
         // A call struck at 95 is below break-even (would lock a loss if assigned);
         // one at 105 is safely above.
-        assert!(95.0 < be);
-        assert!(105.0 > be);
+        assert!(dec!(95) < be);
+        assert!(dec!(105) > be);
     }
 
     #[test]
@@ -938,9 +983,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Put,
-                2.0,
-                1.0,
-                100.0,
+                dec!(2.0),
+                dec!(1.0),
+                dec!(100.0),
                 "2024-06-21",
             ))
             .unwrap();
@@ -951,9 +996,9 @@ mod tests {
                 "AAPL",
                 Action::SellToOpen,
                 OptionType::Call,
-                5.0,
-                1.0,
-                105.0,
+                dec!(5.0),
+                dec!(1.0),
+                dec!(105.0),
                 "2024-07-19",
             ))
             .unwrap();
@@ -965,7 +1010,7 @@ mod tests {
             .unwrap();
         // Excluding the call's premium raises the break-even back toward 98.
         assert!(without_call > with_call);
-        assert!((without_call - 98.0).abs() < 1e-9);
+        assert_eq!(without_call, dec!(98));
         // Excluding None matches the plain break-even.
         assert_eq!(
             db.get_break_even_excluding("AAPL", None).unwrap(),
@@ -976,27 +1021,51 @@ mod tests {
     #[test]
     fn report_orders_by_symbol_and_counts_trades() {
         let db = new_test_db();
-        db.add_trade(&stock("TSLA", Action::BuyToOpen, 200.0, 1.0, 0.0))
-            .unwrap();
-        db.add_trade(&stock("AAPL", Action::BuyToOpen, 100.0, 1.0, 0.0))
-            .unwrap();
-        db.add_trade(&stock("AAPL", Action::SellToClose, 120.0, 1.0, 0.0))
-            .unwrap();
+        db.add_trade(&stock(
+            "TSLA",
+            Action::BuyToOpen,
+            dec!(200.0),
+            dec!(1.0),
+            dec!(0.0),
+        ))
+        .unwrap();
+        db.add_trade(&stock(
+            "AAPL",
+            Action::BuyToOpen,
+            dec!(100.0),
+            dec!(1.0),
+            dec!(0.0),
+        ))
+        .unwrap();
+        db.add_trade(&stock(
+            "AAPL",
+            Action::SellToClose,
+            dec!(120.0),
+            dec!(1.0),
+            dec!(0.0),
+        ))
+        .unwrap();
 
         let report = db.get_report_by_symbol().unwrap();
         assert_eq!(report.len(), 2);
         assert_eq!(report[0].symbol, "AAPL");
         assert_eq!(report[0].trade_count, 2);
-        assert!((report[0].profit_loss - 20.0).abs() < 1e-9);
+        assert_eq!(report[0].profit_loss, dec!(20));
         assert_eq!(report[1].symbol, "TSLA");
     }
 
     #[test]
     fn update_trade_without_id_is_noop() {
         let db = new_test_db();
-        db.add_trade(&stock("AAPL", Action::BuyToOpen, 150.0, 10.0, 1.0))
-            .unwrap();
-        let ghost = stock("ZZZZ", Action::SellToClose, 1.0, 1.0, 0.0);
+        db.add_trade(&stock(
+            "AAPL",
+            Action::BuyToOpen,
+            dec!(150.0),
+            dec!(10.0),
+            dec!(1.0),
+        ))
+        .unwrap();
+        let ghost = stock("ZZZZ", Action::SellToClose, dec!(1.0), dec!(1.0), dec!(0.0));
         db.update_trade(&ghost).unwrap();
         let trades = db.get_all_trades().unwrap();
         assert_eq!(trades.len(), 1);

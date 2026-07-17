@@ -5,6 +5,7 @@ use cursive::theme::{Color, PaletteColor};
 use cursive::traits::*;
 use cursive::views::{Dialog, EditView, LinearLayout, ListView, SelectView, TextView};
 use cursive::Cursive;
+use rust_decimal::Decimal;
 use std::sync::{Arc, Mutex};
 
 pub fn run_ui(db: Database) {
@@ -253,13 +254,13 @@ struct ParsedTrade {
     symbol: String,
     trade_type: TradeType,
     action: Action,
-    price: f64,
-    quantity: f64,
+    price: Decimal,
+    quantity: Decimal,
     date: String,
-    fees: f64,
+    fees: Decimal,
     comment: String,
     option_type: Option<OptionType>,
-    strike: Option<f64>,
+    strike: Option<Decimal>,
     expiration: Option<String>,
 }
 
@@ -717,31 +718,31 @@ fn maybe_show_expiration_alert(siv: &mut Cursive, trades: &[Trade]) {
 
 // Formats a monetary amount for an edit field, leaving it blank for
 // non-positive values.
-fn format_amount(value: f64) -> String {
-    if value > 0.0 {
-        format!("{:.2}", value)
+fn format_amount(value: Decimal) -> String {
+    if value > Decimal::ZERO {
+        format!("{:.2}", value.round_dp(2))
     } else {
         String::new()
     }
 }
 
 // Describes a net share position as long/short/flat.
-fn format_position(net_shares: f64) -> String {
-    if net_shares.abs() < f64::EPSILON {
+fn format_position(net_shares: Decimal) -> String {
+    if net_shares == Decimal::ZERO {
         "flat".to_string()
-    } else if net_shares > 0.0 {
+    } else if net_shares > Decimal::ZERO {
         format!("long {:.0}", net_shares)
     } else {
         format!("short {:.0}", net_shares.abs())
     }
 }
 
-// Parses a user-entered f64, showing an error dialog and returning None when
+// Parses a user-entered Decimal, showing an error dialog and returning None when
 // the input is invalid. When allow_zero is false the value must be strictly
 // positive.
-fn parse_amount(siv: &mut Cursive, raw: &str, label: &str, allow_zero: bool) -> Option<f64> {
-    match raw.parse::<f64>() {
-        Ok(value) if value > 0.0 || (allow_zero && value == 0.0) => Some(value),
+fn parse_amount(siv: &mut Cursive, raw: &str, label: &str, allow_zero: bool) -> Option<Decimal> {
+    match raw.parse::<Decimal>() {
+        Ok(value) if value > Decimal::ZERO || (allow_zero && value == Decimal::ZERO) => Some(value),
         _ => {
             siv.add_layer(Dialog::info(format!("Invalid {}", label)));
             None
@@ -799,6 +800,7 @@ fn is_leap_year(year: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn accepts_valid_dates() {
@@ -856,9 +858,9 @@ mod tests {
 
     #[test]
     fn position_labels() {
-        assert_eq!(format_position(0.0), "flat");
-        assert_eq!(format_position(100.0), "long 100");
-        assert_eq!(format_position(-200.0), "short 200");
+        assert_eq!(format_position(dec!(0.0)), "flat");
+        assert_eq!(format_position(dec!(100.0)), "long 100");
+        assert_eq!(format_position(dec!(-200.0)), "short 200");
     }
 
     #[test]
@@ -866,7 +868,7 @@ mod tests {
         let mut open_past = Trade {
             trade_type: TradeType::Option,
             option_type: Some(OptionType::Put),
-            strike: Some(100.0),
+            strike: Some(dec!(100.0)),
             expiration: Some("2020-01-01".to_string()),
             status: Some(OptionStatus::Open),
             ..Default::default()

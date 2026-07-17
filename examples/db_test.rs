@@ -1,4 +1,5 @@
 use options_tracker::db::{Action, Database, OptionStatus, OptionType, Trade, TradeType};
+use rust_decimal_macros::dec;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing Stock Options Tracker Database...\n");
@@ -12,10 +13,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         symbol: "AAPL".to_string(),
         trade_type: TradeType::Stock,
         action: Action::BuyToOpen,
-        price: 150.50,
-        quantity: 100.0,
+        price: dec!(150.50),
+        quantity: dec!(100.0),
         date: "2024-01-15".to_string(),
-        fees: 5.00,
+        fees: dec!(5.00),
         comment: "Initial purchase".to_string(),
         ..Default::default()
     };
@@ -28,10 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         symbol: "AAPL".to_string(),
         trade_type: TradeType::Stock,
         action: Action::SellToClose,
-        price: 165.75,
-        quantity: 100.0,
+        price: dec!(165.75),
+        quantity: dec!(100.0),
         date: "2024-02-15".to_string(),
-        fees: 5.00,
+        fees: dec!(5.00),
         comment: "Sold for profit".to_string(),
         ..Default::default()
     };
@@ -44,13 +45,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         symbol: "TSLA".to_string(),
         trade_type: TradeType::Option,
         action: Action::BuyToOpen,
-        price: 50.00,
-        quantity: 10.0,
+        price: dec!(50.00),
+        quantity: dec!(10.0),
         date: "2024-03-01".to_string(),
-        fees: 2.50,
+        fees: dec!(2.50),
         comment: "Call option".to_string(),
         option_type: Some(OptionType::Call),
-        strike: Some(250.0),
+        strike: Some(dec!(250.0)),
         expiration: Some("2024-06-21".to_string()),
         status: Some(OptionStatus::Open),
         ..Default::default()

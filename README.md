@@ -80,7 +80,7 @@ cargo run --release
 
 The application uses an intuitive dialog-based interface:
 - **Main Menu**: Use arrow keys (↑/↓) to navigate, Enter to select
-- **Forms**: Use Tab to move between fields, type to edit, click buttons or use keyboard shortcuts
+- **Forms**: Use Tab to move between fields, type to edit text fields, and use the dropdown selectors (Type, Action, Option Type) via Enter/arrow keys or the mouse; click buttons or use keyboard shortcuts
 - **Lists**: Use arrow keys to navigate, Enter to select items
 
 ### Adding a Trade
@@ -88,15 +88,21 @@ The application uses an intuitive dialog-based interface:
 1. Select "Add New Trade" from the main menu
 2. Fill in the required fields:
    - **Symbol**: Stock ticker (e.g., AAPL, TSLA)
-   - **Type**: Enter "stock" or "option"
-   - **Action**: `buy_to_open`, `sell_to_open`, `buy_to_close`, or `sell_to_close`
+   - **Type**: Dropdown selector — choose `stock` or `option`
+   - **Action**: Dropdown selector — `buy_to_open`, `sell_to_open`,
+     `buy_to_close`, or `sell_to_close`
    - **Price**: Price per unit (per share; for options this is the premium per share)
    - **Quantity**: Number of shares (stock) or contracts (option)
    - **Date**: Transaction date in YYYY-MM-DD format (e.g., 2024-01-15)
    - **Fees**: Transaction fees (e.g., 5.00)
-   - **Option Type / Strike / Expiration**: required when Type is "option"
+   - **Option Type / Strike / Expiration**: shown only when Type is `option`
+     (Option Type is a `call`/`put` dropdown)
    - **Comment**: Optional notes
 3. Click "Save" or press the keyboard shortcut to save
+
+Dropdowns (Type, Action, Option Type) open on Enter or a mouse click; pick a
+value with the arrow keys + Enter or by clicking it. Selecting `stock` hides the
+Option Type / Strike / Expiration fields, and `option` reveals them.
 
 When you sell-to-open a **call** whose strike is below the underlying's current
 break-even, a non-blocking warning appears ("Save Anyway" / "Cancel") because

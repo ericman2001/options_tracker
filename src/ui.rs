@@ -3,7 +3,9 @@ use crate::db::{Action, Database, OptionStatus, OptionType, Trade, TradeType};
 use cursive::align::HAlign;
 use cursive::theme::{Color, PaletteColor};
 use cursive::traits::*;
-use cursive::views::{Dialog, EditView, LinearLayout, ListView, SelectView, TextView};
+use cursive::views::{
+    Dialog, EditView, HideableView, LinearLayout, ListView, SelectView, TextView,
+};
 use cursive::Cursive;
 use rust_decimal::Decimal;
 use std::sync::{Arc, Mutex};
@@ -69,7 +71,43 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
 
     let trade = trade.unwrap_or_default();
 
-    let form = ListView::new()
+    let is_option = trade.trade_type == TradeType::Option;
+
+    // Type dropdown: floats over the form, arrow/Enter or mouse to pick. Its
+    // submit handler shows/hides the option-only rows.
+    let mut trade_type_select = SelectView::<TradeType>::new().popup();
+    for t in TradeType::variants() {
+        trade_type_select.add_item(t.to_string(), *t);
+    }
+    let trade_type_select = trade_type_select
+        .selected(selected_index(TradeType::variants(), trade.trade_type))
+        .on_submit(|s, t: &TradeType| {
+            let show = *t == TradeType::Option;
+            s.call_on_name("option_fields", |v: &mut HideableView<ListView>| {
+                v.set_visible(show);
+            });
+        });
+
+    let mut action_select = SelectView::<Action>::new().popup();
+    for a in Action::variants() {
+        action_select.add_item(a.to_string(), *a);
+    }
+    let action_select = action_select.selected(selected_index(Action::variants(), trade.action));
+
+    // The option-type dropdown only ever holds call/put; it is ignored when the
+    // trade is a stock. Preselect the stored value, defaulting to the first.
+    let mut option_type_select = SelectView::<OptionType>::new().popup();
+    for t in OptionType::variants() {
+        option_type_select.add_item(t.to_string(), *t);
+    }
+    let option_type_select = option_type_select.selected(
+        trade
+            .option_type
+            .map(|t| selected_index(OptionType::variants(), t))
+            .unwrap_or(0),
+    );
+
+    let top_form = ListView::new()
         .child(
             "Symbol:",
             EditView::new()
@@ -78,19 +116,10 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 .fixed_width(20),
         )
         .child(
-            "Type (stock/option):",
-            EditView::new()
-                .content(trade.trade_type.to_string())
-                .with_name("trade_type")
-                .fixed_width(20),
+            "Type:",
+            trade_type_select.with_name("trade_type").fixed_width(20),
         )
-        .child(
-            "Action:",
-            EditView::new()
-                .content(trade.action.to_string())
-                .with_name("action")
-                .fixed_width(20),
-        )
+        .child("Action:", action_select.with_name("action").fixed_width(20))
         .child(
             "Price:",
             EditView::new()
@@ -118,19 +147,13 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 .content(format_amount(trade.fees))
                 .with_name("fees")
                 .fixed_width(20),
-        )
+        );
+
+    // Option-only rows, hidden for stock trades and revealed for options.
+    let option_form = ListView::new()
         .child(
-            "Option Type (call/put):",
-            EditView::new()
-                .content(
-                    trade
-                        .option_type
-                        .as_ref()
-                        .map(|t| t.to_string())
-                        .unwrap_or_default(),
-                )
-                .with_name("option_type")
-                .fixed_width(20),
+            "Option Type:",
+            option_type_select.with_name("option_type").fixed_width(20),
         )
         .child(
             "Strike:",
@@ -145,14 +168,23 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 .content(trade.expiration.clone().unwrap_or_default())
                 .with_name("expiration")
                 .fixed_width(20),
-        )
-        .child(
-            "Comment:",
-            EditView::new()
-                .content(trade.comment.clone())
-                .with_name("comment")
-                .fixed_width(20),
         );
+    let option_form = HideableView::new(option_form)
+        .visible(is_option)
+        .with_name("option_fields");
+
+    let bottom_form = ListView::new().child(
+        "Comment:",
+        EditView::new()
+            .content(trade.comment.clone())
+            .with_name("comment")
+            .fixed_width(20),
+    );
+
+    let form = LinearLayout::vertical()
+        .child(top_form)
+        .child(option_form)
+        .child(bottom_form);
 
     let trade_id = trade.id;
     let existing_status = trade.status.clone();
@@ -160,8 +192,9 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
     let db_clone = db.clone();
 
     let help = TextView::new(
-        "Action: buy_to_open, sell_to_open, buy_to_close, sell_to_close\n\
-         Option Type / Strike / Expiration are required only when Type is 'option'.",
+        "Type, Action, and Option Type are dropdowns: Tab to focus, Enter or click\n\
+         to open, arrow keys + Enter (or a click) to pick.\n\
+         Option Type / Strike / Expiration apply only when Type is 'option'.",
     );
     let body = LinearLayout::vertical()
         .child(help)
@@ -187,14 +220,14 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 let new_trade = Trade {
                     id: trade_id,
                     symbol: parsed.symbol.clone(),
-                    trade_type: parsed.trade_type.clone(),
-                    action: parsed.action.clone(),
+                    trade_type: parsed.trade_type,
+                    action: parsed.action,
                     price: parsed.price,
                     quantity: parsed.quantity,
                     date: parsed.date,
                     fees: parsed.fees,
                     comment: parsed.comment,
-                    option_type: parsed.option_type.clone(),
+                    option_type: parsed.option_type,
                     strike: parsed.strike,
                     expiration: parsed.expiration,
                     status,
@@ -264,6 +297,20 @@ struct ParsedTrade {
     expiration: Option<String>,
 }
 
+// Index of `value` within `variants`, used to preselect a dropdown. Falls back
+// to 0 (variants are never empty).
+fn selected_index<T: PartialEq>(variants: &[T], value: T) -> usize {
+    variants.iter().position(|v| *v == value).unwrap_or(0)
+}
+
+// Reads the current selection of a popup `SelectView` by name.
+fn read_select<T: Clone + Send + Sync + 'static>(s: &mut Cursive, name: &str) -> Option<T> {
+    s.call_on_name(name, |view: &mut SelectView<T>| {
+        view.selection().map(|rc| (*rc).clone())
+    })
+    .flatten()
+}
+
 // Reads and validates every form field, showing an error dialog and returning
 // None on the first problem.
 fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
@@ -271,39 +318,41 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
         s.call_on_name(name, |view: &mut EditView| view.get_content().to_string())
     };
 
+    // Dropdowns guarantee a valid enum value, so these only fail to read on an
+    // internal wiring error.
+    let trade_type = read_select::<TradeType>(s, "trade_type");
+    let action = read_select::<Action>(s, "action");
+    let option_type_sel = read_select::<OptionType>(s, "option_type");
+
     let fields = (|| {
         Some((
             read_field(s, "symbol")?,
-            read_field(s, "trade_type")?,
-            read_field(s, "action")?,
             read_field(s, "price")?,
             read_field(s, "quantity")?,
             read_field(s, "date")?,
             read_field(s, "fees")?,
-            read_field(s, "option_type")?,
             read_field(s, "strike")?,
             read_field(s, "expiration")?,
             read_field(s, "comment")?,
         ))
     })();
 
-    let (
-        symbol,
-        trade_type,
-        action,
-        price_str,
-        quantity_str,
-        date,
-        fees_str,
-        option_type_str,
-        strike_str,
-        expiration_str,
-        comment,
-    ) = match fields {
-        Some(values) => values,
-        None => {
+    let (symbol, price_str, quantity_str, date, fees_str, strike_str, expiration_str, comment) =
+        match fields {
+            Some(values) => values,
+            None => {
+                s.add_layer(Dialog::info(
+                    "Internal error: could not read one or more form fields",
+                ));
+                return None;
+            }
+        };
+
+    let (trade_type, action) = match (trade_type, action) {
+        (Some(t), Some(a)) => (t, a),
+        _ => {
             s.add_layer(Dialog::info(
-                "Internal error: could not read one or more form fields",
+                "Internal error: could not read the Type/Action selectors",
             ));
             return None;
         }
@@ -314,24 +363,6 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
         s.add_layer(Dialog::info("Symbol is required"));
         return None;
     }
-
-    let trade_type = match trade_type.parse::<TradeType>() {
-        Ok(t) => t,
-        Err(_) => {
-            s.add_layer(Dialog::info("Type must be 'stock' or 'option'"));
-            return None;
-        }
-    };
-
-    let action = match action.parse::<Action>() {
-        Ok(a) => a,
-        Err(_) => {
-            s.add_layer(Dialog::info(
-                "Action must be one of: buy_to_open, sell_to_open, buy_to_close, sell_to_close",
-            ));
-            return None;
-        }
-    };
 
     let price = parse_amount(s, &price_str, "price", true)?;
     let quantity = parse_amount(s, &quantity_str, "quantity", false)?;
@@ -346,12 +377,16 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
         return None;
     }
 
-    // Option-specific fields are required (and validated) only for options.
+    // Option-specific fields are required (and validated) only for options. The
+    // Option Type dropdown always holds a valid call/put value, so it needs no
+    // parse check.
     let (option_type, strike, expiration) = if trade_type == TradeType::Option {
-        let option_type = match option_type_str.parse::<OptionType>() {
-            Ok(t) => t,
-            Err(_) => {
-                s.add_layer(Dialog::info("Option Type must be 'call' or 'put'"));
+        let option_type = match option_type_sel {
+            Some(t) => t,
+            None => {
+                s.add_layer(Dialog::info(
+                    "Internal error: could not read the Option Type selector",
+                ));
                 return None;
             }
         };

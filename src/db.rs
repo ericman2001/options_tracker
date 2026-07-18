@@ -22,7 +22,7 @@ fn opt_decimal_from_row(row: &rusqlite::Row<'_>, idx: usize) -> Result<Option<De
 }
 
 string_enum! {
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum TradeType {
         Stock => "stock",
         Option => "option",
@@ -35,7 +35,7 @@ string_enum! {
     /// stock, `SellToOpen`/`BuyToClose` represent opening and covering a short
     /// position. Cash-flow direction depends only on the buy/sell side (see
     /// [`Action::is_buy`]); the open/close distinction is informational.
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum Action {
         BuyToOpen => "buy_to_open",
         SellToOpen => "sell_to_open",
@@ -53,7 +53,7 @@ impl Action {
 }
 
 string_enum! {
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum OptionType {
         Call => "call",
         Put => "put",
@@ -379,7 +379,7 @@ impl Database {
         let option_id = option
             .id
             .ok_or_else(|| rusqlite::Error::InvalidParameterName("option has no id".to_string()))?;
-        let option_type = option.option_type.clone().ok_or_else(|| {
+        let option_type = option.option_type.ok_or_else(|| {
             rusqlite::Error::InvalidParameterName("trade is not an option".to_string())
         })?;
         let strike = option.strike.ok_or_else(|| {

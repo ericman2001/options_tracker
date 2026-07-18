@@ -4,6 +4,7 @@
 /// For each variant a canonical lowercase string is provided. The macro
 /// generates:
 /// - `as_str` returning the canonical string,
+/// - `variants` returning all variants in declaration order,
 /// - a case-insensitive `FromStr` (erroring with `Invalid <error>: <input>`),
 /// - `rusqlite`'s `ToSql`/`FromSql` (stored as text, parsed via `FromStr`),
 /// - `Display`,
@@ -26,6 +27,12 @@ macro_rules! string_enum {
                 match self {
                     $(Self::$variant => $text),+
                 }
+            }
+
+            /// All variants in declaration order. Used to populate UI selectors
+            /// so they never drift from the enum definition.
+            pub fn variants() -> &'static [Self] {
+                &[$(Self::$variant),+]
             }
         }
 

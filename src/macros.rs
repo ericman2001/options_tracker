@@ -5,6 +5,7 @@
 /// generates:
 /// - `as_str` returning the canonical string,
 /// - `variants` returning all variants in declaration order,
+/// - a `StringEnum` implementation for generic enum handling,
 /// - a case-insensitive `FromStr` (erroring with `Invalid <error>: <input>`),
 /// - `rusqlite`'s `ToSql`/`FromSql` (stored as text, parsed via `FromStr`),
 /// - `Display`,

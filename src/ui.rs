@@ -86,7 +86,8 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
     let action_select = enum_select(trade.action);
 
     // The option-type dropdown is ignored for stock trades. New options start
-    // on the sentinel so the user must explicitly choose call or put.
+    // on the sentinel so the user must explicitly choose call or put. Stored
+    // values add one because the sentinel occupies index zero.
     let mut option_type_select = SelectView::<Option<OptionType>>::new().popup();
     option_type_select.add_item("-- select --", None);
     for t in OptionType::variants() {
@@ -294,9 +295,10 @@ fn selected_index<T: PartialEq>(variants: &[T], value: &T) -> usize {
     variants.iter().position(|v| v == value).unwrap_or(0)
 }
 
+// Builds a popup selector preselected to the current enum value.
 fn enum_select<T>(current: T) -> SelectView<T>
 where
-    T: StringEnum + Copy + PartialEq + std::fmt::Display + Send + Sync + 'static,
+    T: StringEnum + Copy + PartialEq + Send + Sync + 'static,
 {
     let mut select = SelectView::new().popup();
     for value in T::variants() {

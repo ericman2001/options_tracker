@@ -1,5 +1,6 @@
 use crate::date::{days_to_expiration, format_dte, today};
 use crate::db::{Action, Database, OptionStatus, OptionType, Trade, TradeType};
+use crate::macros::StringEnum;
 use cursive::align::HAlign;
 use cursive::theme::{Color, PaletteColor};
 use cursive::traits::*;
@@ -75,24 +76,14 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
 
     // Type dropdown: floats over the form, arrow/Enter or mouse to pick. Its
     // submit handler shows/hides the option-only rows.
-    let mut trade_type_select = SelectView::<TradeType>::new().popup();
-    for t in TradeType::variants() {
-        trade_type_select.add_item(t.as_str(), *t);
-    }
-    let trade_type_select = trade_type_select
-        .selected(selected_index(TradeType::variants(), &trade.trade_type))
-        .on_submit(|s, t: &TradeType| {
-            let show = *t == TradeType::Option;
-            s.call_on_name("option_fields", |v: &mut HideableView<ListView>| {
-                v.set_visible(show);
-            });
+    let trade_type_select = enum_select(trade.trade_type).on_submit(|s, t: &TradeType| {
+        let show = *t == TradeType::Option;
+        s.call_on_name("option_fields", |v: &mut HideableView<ListView>| {
+            v.set_visible(show);
         });
+    });
 
-    let mut action_select = SelectView::<Action>::new().popup();
-    for a in Action::variants() {
-        action_select.add_item(a.as_str(), *a);
-    }
-    let action_select = action_select.selected(selected_index(Action::variants(), &trade.action));
+    let action_select = enum_select(trade.action);
 
     // The option-type dropdown only ever holds call/put; it is ignored when the
     // trade is a stock. Preselect the stored value, defaulting to the first.
@@ -302,6 +293,17 @@ fn selected_index<T: PartialEq>(variants: &[T], value: &T) -> usize {
     variants.iter().position(|v| v == value).unwrap_or(0)
 }
 
+fn enum_select<T>(current: T) -> SelectView<T>
+where
+    T: StringEnum + Copy + PartialEq + std::fmt::Display + Send + Sync + 'static,
+{
+    let mut select = SelectView::new().popup();
+    for value in T::variants() {
+        select.add_item(value.as_str(), *value);
+    }
+    select.selected(selected_index(T::variants(), &current))
+}
+
 // Reads the current selection of a popup `SelectView` by name.
 fn read_select<T: Clone + Send + Sync + 'static>(s: &mut Cursive, name: &str) -> Option<T> {
     s.call_on_name(name, |view: &mut SelectView<T>| {
@@ -317,12 +319,6 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
         s.call_on_name(name, |view: &mut EditView| view.get_content().to_string())
     };
 
-    // Dropdowns guarantee a valid enum value, so these only fail to read on an
-    // internal wiring error.
-    let trade_type = read_select::<TradeType>(s, "trade_type");
-    let action = read_select::<Action>(s, "action");
-    let option_type_sel = read_select::<OptionType>(s, "option_type");
-
     let fields = (|| {
         Some((
             read_field(s, "symbol")?,
@@ -333,28 +329,28 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
             read_field(s, "strike")?,
             read_field(s, "expiration")?,
             read_field(s, "comment")?,
+            read_select::<TradeType>(s, "trade_type")?,
+            read_select::<Action>(s, "action")?,
+            read_select::<OptionType>(s, "option_type")?,
         ))
     })();
 
-    let (symbol, price_str, quantity_str, date, fees_str, strike_str, expiration_str, comment) =
-        match fields {
-            Some(values) => values,
-            None => {
-                s.add_layer(Dialog::info(
-                    "Internal error: could not read one or more form fields",
-                ));
-                return None;
-            }
-        };
-
-    let (trade_type, action) = match (trade_type, action) {
-        (Some(t), Some(a)) => (t, a),
-        _ => {
-            s.add_layer(Dialog::info(
-                "Internal error: could not read the Type/Action selectors",
-            ));
-            return None;
-        }
+    let Some((
+        symbol,
+        price_str,
+        quantity_str,
+        date,
+        fees_str,
+        strike_str,
+        expiration_str,
+        comment,
+        trade_type,
+        action,
+        option_type_sel,
+    )) = fields
+    else {
+        s.add_layer(Dialog::info("Internal error: could not read the form"));
+        return None;
     };
 
     let symbol = symbol.to_uppercase();
@@ -380,15 +376,6 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
     // Option Type dropdown always holds a valid call/put value, so it needs no
     // parse check.
     let (option_type, strike, expiration) = if trade_type == TradeType::Option {
-        let option_type = match option_type_sel {
-            Some(t) => t,
-            None => {
-                s.add_layer(Dialog::info(
-                    "Internal error: could not read the Option Type selector",
-                ));
-                return None;
-            }
-        };
         let strike = parse_amount(s, &strike_str, "strike", false)?;
         if expiration_str.is_empty() {
             s.add_layer(Dialog::info("Expiration is required for options"));
@@ -398,7 +385,7 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
             s.add_layer(Dialog::info("Invalid expiration format. Use YYYY-MM-DD"));
             return None;
         }
-        (Some(option_type), Some(strike), Some(expiration_str))
+        (Some(option_type_sel), Some(strike), Some(expiration_str))
     } else {
         (None, None, None)
     };

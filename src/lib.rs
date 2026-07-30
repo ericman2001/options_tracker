@@ -1,5 +1,6 @@
 #[macro_use]
-mod macros;
+/// Internal helpers for generating string-backed enums.
+pub mod macros;
 
 pub mod date;
 pub mod db;

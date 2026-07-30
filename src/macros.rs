@@ -9,6 +9,13 @@
 /// - `rusqlite`'s `ToSql`/`FromSql` (stored as text, parsed via `FromStr`),
 /// - `Display`,
 /// - `From<Self> for String`.
+pub trait StringEnum {
+    fn as_str(&self) -> &'static str;
+    fn variants() -> &'static [Self]
+    where
+        Self: Sized;
+}
+
 macro_rules! string_enum {
     (
         $(#[$meta:meta])*
@@ -33,6 +40,16 @@ macro_rules! string_enum {
             /// so they never drift from the enum definition.
             pub fn variants() -> &'static [Self] {
                 &[$(Self::$variant),+]
+            }
+        }
+
+        impl $crate::macros::StringEnum for $name {
+            fn as_str(&self) -> &'static str {
+                Self::as_str(self)
+            }
+
+            fn variants() -> &'static [Self] {
+                Self::variants()
             }
         }
 

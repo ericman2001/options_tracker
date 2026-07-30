@@ -31,8 +31,11 @@ use), not by piping stdin.
   `End`, then `BackSpace` repeatedly.
 - Form rows are tightly spaced (~1 line apart), so clicking a specific field row is
   unreliable. Prefer **Tab / Shift+Tab** to move between fields. Tab order is
-  Symbol → Type → Action → Price → Quantity → Date → Fees → Comment → Save → Cancel,
-  and wraps around (from Cancel, Tab → Symbol).
+  Symbol → Type → Action → Price → Quantity → Date → Fees → Option Type → Strike →
+  Expiration → Comment → Save → Cancel when Type is `option`; the option-only rows
+  are skipped when Type is `stock`. It wraps around (from Cancel, Tab → Symbol).
+- A closed popup SelectView responds only to Enter or a left-click; arrow keys work
+  after the popup is open.
 - Clicking a Cursive button (e.g. `<Save>`) while a text field is focused sometimes
   needs **two clicks** (first moves focus, second activates). Or Tab to the button
   and press Enter.
@@ -65,11 +68,16 @@ use), not by piping stdin.
   konsole with `wmctrl -ia <konsole_wid>` before sending input.
 
 ## What to verify for enum / validation changes
-- Add validation: invalid Type → dialog `Type must be 'stock' or 'option'`; invalid
-  Action → `Action must be one of: buy_to_open, sell_to_open, buy_to_close, sell_to_close`;
-  option with blank Option Type/Strike/Expiration → `Option Type must be 'call' or 'put'`
-  / `Invalid strike` / `Expiration is required for options`; none is saved. Type/Action
-  are case-insensitive (e.g. `Option` is accepted and stored lowercase).
+- Type and Action are dropdowns, so they cannot be invalid. Selecting `stock` hides
+  the Option Type / Strike / Expiration rows; selecting `option` reveals them.
+- Option Type is a dropdown that starts at a `-- select --` sentinel for new options
+  and is required; an option saved with the sentinel selected shows
+  `Option Type is required for options` and is not saved. Editing an existing option
+  preselects its stored call/put value.
+- Remaining validation: Symbol is required; price, quantity, fees, and strike must
+  be numeric (price/fees may be 0; quantity/strike must be greater than 0); date and
+  expiration must be `YYYY-MM-DD` and calendar-valid; expiration is required for
+  options. None is saved when validation fails.
 - Round-trip: a saved trade should appear in View/Edit Trades with the exact stored
   values (proves `ToSql` write + `FromSql` read).
 - Reports: P/L per symbol = sum of sells `(price*qty)-fees` minus buys `(price*qty)+fees`.

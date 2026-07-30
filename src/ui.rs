@@ -186,7 +186,8 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
     let help = TextView::new(
         "Type, Action, and Option Type are dropdowns: Tab to focus, Enter or click\n\
          to open, arrow keys + Enter (or a click) to pick.\n\
-         Option Type / Strike / Expiration apply only when Type is 'option'.",
+         Option Type / Strike / Expiration apply only when Type is 'option'.\n\
+         For new options, Option Type starts at -- select -- and must be chosen.",
     );
     let body = LinearLayout::vertical()
         .child(help)

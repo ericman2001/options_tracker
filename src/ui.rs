@@ -77,10 +77,10 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
     // submit handler shows/hides the option-only rows.
     let mut trade_type_select = SelectView::<TradeType>::new().popup();
     for t in TradeType::variants() {
-        trade_type_select.add_item(t.to_string(), *t);
+        trade_type_select.add_item(t.as_str(), *t);
     }
     let trade_type_select = trade_type_select
-        .selected(selected_index(TradeType::variants(), trade.trade_type))
+        .selected(selected_index(TradeType::variants(), &trade.trade_type))
         .on_submit(|s, t: &TradeType| {
             let show = *t == TradeType::Option;
             s.call_on_name("option_fields", |v: &mut HideableView<ListView>| {
@@ -90,21 +90,20 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
 
     let mut action_select = SelectView::<Action>::new().popup();
     for a in Action::variants() {
-        action_select.add_item(a.to_string(), *a);
+        action_select.add_item(a.as_str(), *a);
     }
-    let action_select = action_select.selected(selected_index(Action::variants(), trade.action));
+    let action_select = action_select.selected(selected_index(Action::variants(), &trade.action));
 
     // The option-type dropdown only ever holds call/put; it is ignored when the
     // trade is a stock. Preselect the stored value, defaulting to the first.
     let mut option_type_select = SelectView::<OptionType>::new().popup();
     for t in OptionType::variants() {
-        option_type_select.add_item(t.to_string(), *t);
+        option_type_select.add_item(t.as_str(), *t);
     }
     let option_type_select = option_type_select.selected(
         trade
             .option_type
-            .map(|t| selected_index(OptionType::variants(), t))
-            .unwrap_or(0),
+            .map_or(0, |t| selected_index(OptionType::variants(), &t)),
     );
 
     let top_form = ListView::new()
@@ -187,7 +186,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
         .child(bottom_form);
 
     let trade_id = trade.id;
-    let existing_status = trade.status.clone();
+    let existing_status = trade.status;
     let existing_assigned_from = trade.assigned_from;
     let db_clone = db.clone();
 
@@ -212,7 +211,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 let status = if parsed.trade_type == TradeType::Option {
                     // Preserve an existing option's lifecycle status on edit;
                     // new options start Open.
-                    Some(existing_status.clone().unwrap_or(OptionStatus::Open))
+                    Some(existing_status.unwrap_or(OptionStatus::Open))
                 } else {
                     None
                 };
@@ -299,8 +298,8 @@ struct ParsedTrade {
 
 // Index of `value` within `variants`, used to preselect a dropdown. Falls back
 // to 0 (variants are never empty).
-fn selected_index<T: PartialEq>(variants: &[T], value: T) -> usize {
-    variants.iter().position(|v| *v == value).unwrap_or(0)
+fn selected_index<T: PartialEq>(variants: &[T], value: &T) -> usize {
+    variants.iter().position(|v| v == value).unwrap_or(0)
 }
 
 // Reads the current selection of a popup `SelectView` by name.
@@ -515,7 +514,7 @@ fn show_trade_actions(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Trade)
                     let res = db
                         .lock()
                         .expect("Failed to lock database")
-                        .assign_option(id, status.clone());
+                        .assign_option(id, status);
                     match res {
                         Ok(_) => {
                             s.pop_layer();
@@ -663,7 +662,7 @@ fn format_trade_row(trade: &Trade, today: &str) -> String {
             .map(|s| format!("${:.2}", s))
             .unwrap_or_else(|| "?".to_string());
         let expiration = trade.expiration.clone().unwrap_or_default();
-        let status = trade.status.as_ref().map(|s| s.as_str()).unwrap_or("open");
+        let status = trade.status.map(|s| s.as_str()).unwrap_or("open");
         // DTE is only meaningful for an open option; resolved statuses
         // (closed/assigned/exercised/expired) shouldn't show a countdown.
         let dte = if status == "open" {

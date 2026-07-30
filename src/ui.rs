@@ -86,18 +86,17 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
     let action_select = enum_select(trade.action);
 
     // The option-type dropdown is ignored for stock trades. New options start
-    // on the sentinel so the user must explicitly choose call or put. Stored
-    // values add one because the sentinel occupies index zero.
+    // on the sentinel so the user must explicitly choose call or put.
+    let choices = std::iter::once(None)
+        .chain(OptionType::variants().iter().copied().map(Some))
+        .collect::<Vec<Option<OptionType>>>();
     let mut option_type_select = SelectView::<Option<OptionType>>::new().popup();
-    option_type_select.add_item("-- select --", None);
-    for t in OptionType::variants() {
-        option_type_select.add_item(t.as_str(), Some(*t));
+    for choice in &choices {
+        let label = choice.map_or("-- select --", |t| t.as_str());
+        option_type_select.add_item(label, *choice);
     }
-    let option_type_select = option_type_select.selected(
-        trade
-            .option_type
-            .map_or(0, |t| selected_index(OptionType::variants(), &t) + 1),
-    );
+    let option_type_select =
+        option_type_select.selected(selected_index(&choices, &trade.option_type));
 
     let top_form = ListView::new()
         .child(
@@ -914,6 +913,18 @@ mod tests {
             selected_index(&OptionType::variants()[..1], &OptionType::Put),
             0
         );
+    }
+
+    #[test]
+    fn selected_index_handles_option_type_choices() {
+        let choices = std::iter::once(None)
+            .chain(OptionType::variants().iter().copied().map(Some))
+            .collect::<Vec<Option<OptionType>>>();
+
+        assert_eq!(selected_index(&choices, &None), 0);
+        for (index, choice) in choices.iter().enumerate().skip(1) {
+            assert_eq!(selected_index(&choices, choice), index);
+        }
     }
 
     #[test]

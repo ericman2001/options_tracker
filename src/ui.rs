@@ -888,6 +888,32 @@ mod tests {
     }
 
     #[test]
+    fn selected_index_covers_enum_variants_and_falls_back_to_zero() {
+        for (index, value) in TradeType::variants().iter().enumerate() {
+            assert_eq!(selected_index(TradeType::variants(), value), index);
+        }
+        for (index, value) in Action::variants().iter().enumerate() {
+            assert_eq!(selected_index(Action::variants(), value), index);
+        }
+        for (index, value) in OptionType::variants().iter().enumerate() {
+            assert_eq!(selected_index(OptionType::variants(), value), index);
+        }
+
+        assert_eq!(
+            selected_index(&TradeType::variants()[..1], &TradeType::Option),
+            0
+        );
+        assert_eq!(
+            selected_index(&Action::variants()[..1], &Action::SellToOpen),
+            0
+        );
+        assert_eq!(
+            selected_index(&OptionType::variants()[..1], &OptionType::Put),
+            0
+        );
+    }
+
+    #[test]
     fn unresolved_expirations_flags_only_past_open_options() {
         let mut open_past = Trade {
             trade_type: TradeType::Option,

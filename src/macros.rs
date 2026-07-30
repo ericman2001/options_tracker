@@ -37,13 +37,14 @@ macro_rules! string_enum {
         }
 
         impl $crate::macros::StringEnum for $name {
-            // These resolve to the inherent methods; removing them would recurse.
             fn as_str(&self) -> &'static str {
-                Self::as_str(self)
+                match self {
+                    $(Self::$variant => $text),+
+                }
             }
 
             fn variants() -> &'static [Self] {
-                Self::variants()
+                &[$(Self::$variant),+]
             }
         }
 

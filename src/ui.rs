@@ -85,16 +85,17 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
 
     let action_select = enum_select(trade.action);
 
-    // The option-type dropdown only ever holds call/put; it is ignored when the
-    // trade is a stock. Preselect the stored value, defaulting to the first.
-    let mut option_type_select = SelectView::<OptionType>::new().popup();
+    // The option-type dropdown is ignored for stock trades. New options start
+    // on the sentinel so the user must explicitly choose call or put.
+    let mut option_type_select = SelectView::<Option<OptionType>>::new().popup();
+    option_type_select.add_item("-- select --", None);
     for t in OptionType::variants() {
-        option_type_select.add_item(t.as_str(), *t);
+        option_type_select.add_item(t.as_str(), Some(*t));
     }
     let option_type_select = option_type_select.selected(
         trade
             .option_type
-            .map_or(0, |t| selected_index(OptionType::variants(), &t)),
+            .map_or(0, |t| selected_index(OptionType::variants(), &t) + 1),
     );
 
     let top_form = ListView::new()
@@ -331,7 +332,7 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
             read_field(s, "comment")?,
             read_select::<TradeType>(s, "trade_type")?,
             read_select::<Action>(s, "action")?,
-            read_select::<OptionType>(s, "option_type")?,
+            read_select::<Option<OptionType>>(s, "option_type")?,
         ))
     })();
 
@@ -372,10 +373,12 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
         return None;
     }
 
-    // Option-specific fields are required (and validated) only for options. The
-    // Option Type dropdown always holds a valid call/put value, so it needs no
-    // parse check.
+    // Option-specific fields are required (and validated) only for options.
     let (option_type, strike, expiration) = if trade_type == TradeType::Option {
+        let Some(option_type) = option_type_sel else {
+            s.add_layer(Dialog::info("Option Type is required for options"));
+            return None;
+        };
         let strike = parse_amount(s, &strike_str, "strike", false)?;
         if expiration_str.is_empty() {
             s.add_layer(Dialog::info("Expiration is required for options"));
@@ -385,7 +388,7 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
             s.add_layer(Dialog::info("Invalid expiration format. Use YYYY-MM-DD"));
             return None;
         }
-        (Some(option_type_sel), Some(strike), Some(expiration_str))
+        (Some(option_type), Some(strike), Some(expiration_str))
     } else {
         (None, None, None)
     };

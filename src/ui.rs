@@ -1,5 +1,6 @@
 use crate::date::{days_to_expiration, format_dte, today};
 use crate::db::{Action, Database, OptionStatus, OptionType, Trade, TradeType};
+use crate::macros::StringEnum;
 use cursive::align::HAlign;
 use cursive::theme::{Color, PaletteColor};
 use cursive::traits::*;
@@ -75,37 +76,27 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
 
     // Type dropdown: floats over the form, arrow/Enter or mouse to pick. Its
     // submit handler shows/hides the option-only rows.
-    let mut trade_type_select = SelectView::<TradeType>::new().popup();
-    for t in TradeType::variants() {
-        trade_type_select.add_item(t.to_string(), *t);
-    }
-    let trade_type_select = trade_type_select
-        .selected(selected_index(TradeType::variants(), trade.trade_type))
-        .on_submit(|s, t: &TradeType| {
-            let show = *t == TradeType::Option;
-            s.call_on_name("option_fields", |v: &mut HideableView<ListView>| {
-                v.set_visible(show);
-            });
+    let trade_type_select = enum_select(trade.trade_type).on_submit(|s, t: &TradeType| {
+        let show = *t == TradeType::Option;
+        s.call_on_name("option_fields", |v: &mut HideableView<ListView>| {
+            v.set_visible(show);
         });
+    });
 
-    let mut action_select = SelectView::<Action>::new().popup();
-    for a in Action::variants() {
-        action_select.add_item(a.to_string(), *a);
-    }
-    let action_select = action_select.selected(selected_index(Action::variants(), trade.action));
+    let action_select = enum_select(trade.action);
 
-    // The option-type dropdown only ever holds call/put; it is ignored when the
-    // trade is a stock. Preselect the stored value, defaulting to the first.
-    let mut option_type_select = SelectView::<OptionType>::new().popup();
-    for t in OptionType::variants() {
-        option_type_select.add_item(t.to_string(), *t);
+    // The option-type dropdown is ignored for stock trades. New options start
+    // on the sentinel so the user must explicitly choose call or put.
+    let choices = std::iter::once(None)
+        .chain(OptionType::variants().iter().copied().map(Some))
+        .collect::<Vec<Option<OptionType>>>();
+    let mut option_type_select = SelectView::<Option<OptionType>>::new().popup();
+    for choice in &choices {
+        let label = choice.map_or("-- select --", |t| t.as_str());
+        option_type_select.add_item(label, *choice);
     }
-    let option_type_select = option_type_select.selected(
-        trade
-            .option_type
-            .map(|t| selected_index(OptionType::variants(), t))
-            .unwrap_or(0),
-    );
+    let option_type_select =
+        option_type_select.selected(selected_index(&choices, &trade.option_type));
 
     let top_form = ListView::new()
         .child(
@@ -187,14 +178,15 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
         .child(bottom_form);
 
     let trade_id = trade.id;
-    let existing_status = trade.status.clone();
+    let existing_status = trade.status;
     let existing_assigned_from = trade.assigned_from;
     let db_clone = db.clone();
 
     let help = TextView::new(
         "Type, Action, and Option Type are dropdowns: Tab to focus, Enter or click\n\
          to open, arrow keys + Enter (or a click) to pick.\n\
-         Option Type / Strike / Expiration apply only when Type is 'option'.",
+         Option Type / Strike / Expiration apply only when Type is 'option'.\n\
+         For new options, Option Type starts at -- select -- and must be chosen.",
     );
     let body = LinearLayout::vertical()
         .child(help)
@@ -212,7 +204,7 @@ fn show_add_trade(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Option<Tra
                 let status = if parsed.trade_type == TradeType::Option {
                     // Preserve an existing option's lifecycle status on edit;
                     // new options start Open.
-                    Some(existing_status.clone().unwrap_or(OptionStatus::Open))
+                    Some(existing_status.unwrap_or(OptionStatus::Open))
                 } else {
                     None
                 };
@@ -299,8 +291,20 @@ struct ParsedTrade {
 
 // Index of `value` within `variants`, used to preselect a dropdown. Falls back
 // to 0 (variants are never empty).
-fn selected_index<T: PartialEq>(variants: &[T], value: T) -> usize {
-    variants.iter().position(|v| *v == value).unwrap_or(0)
+fn selected_index<T: PartialEq>(variants: &[T], value: &T) -> usize {
+    variants.iter().position(|v| v == value).unwrap_or(0)
+}
+
+// Builds a popup selector preselected to the current enum value.
+fn enum_select<T>(current: T) -> SelectView<T>
+where
+    T: StringEnum + Copy + PartialEq + Send + Sync + 'static,
+{
+    let mut select = SelectView::new().popup();
+    for value in T::variants() {
+        select.add_item(value.as_str(), *value);
+    }
+    select.selected(selected_index(T::variants(), &current))
 }
 
 // Reads the current selection of a popup `SelectView` by name.
@@ -318,12 +322,6 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
         s.call_on_name(name, |view: &mut EditView| view.get_content().to_string())
     };
 
-    // Dropdowns guarantee a valid enum value, so these only fail to read on an
-    // internal wiring error.
-    let trade_type = read_select::<TradeType>(s, "trade_type");
-    let action = read_select::<Action>(s, "action");
-    let option_type_sel = read_select::<OptionType>(s, "option_type");
-
     let fields = (|| {
         Some((
             read_field(s, "symbol")?,
@@ -334,28 +332,28 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
             read_field(s, "strike")?,
             read_field(s, "expiration")?,
             read_field(s, "comment")?,
+            read_select::<TradeType>(s, "trade_type")?,
+            read_select::<Action>(s, "action")?,
+            read_select::<Option<OptionType>>(s, "option_type")?,
         ))
     })();
 
-    let (symbol, price_str, quantity_str, date, fees_str, strike_str, expiration_str, comment) =
-        match fields {
-            Some(values) => values,
-            None => {
-                s.add_layer(Dialog::info(
-                    "Internal error: could not read one or more form fields",
-                ));
-                return None;
-            }
-        };
-
-    let (trade_type, action) = match (trade_type, action) {
-        (Some(t), Some(a)) => (t, a),
-        _ => {
-            s.add_layer(Dialog::info(
-                "Internal error: could not read the Type/Action selectors",
-            ));
-            return None;
-        }
+    let Some((
+        symbol,
+        price_str,
+        quantity_str,
+        date,
+        fees_str,
+        strike_str,
+        expiration_str,
+        comment,
+        trade_type,
+        action,
+        option_type_sel,
+    )) = fields
+    else {
+        s.add_layer(Dialog::info("Internal error: could not read the form"));
+        return None;
     };
 
     let symbol = symbol.to_uppercase();
@@ -377,18 +375,11 @@ fn read_and_validate_form(s: &mut Cursive) -> Option<ParsedTrade> {
         return None;
     }
 
-    // Option-specific fields are required (and validated) only for options. The
-    // Option Type dropdown always holds a valid call/put value, so it needs no
-    // parse check.
+    // Option-specific fields are required (and validated) only for options.
     let (option_type, strike, expiration) = if trade_type == TradeType::Option {
-        let option_type = match option_type_sel {
-            Some(t) => t,
-            None => {
-                s.add_layer(Dialog::info(
-                    "Internal error: could not read the Option Type selector",
-                ));
-                return None;
-            }
+        let Some(option_type) = option_type_sel else {
+            s.add_layer(Dialog::info("Option Type is required for options"));
+            return None;
         };
         let strike = parse_amount(s, &strike_str, "strike", false)?;
         if expiration_str.is_empty() {
@@ -515,7 +506,7 @@ fn show_trade_actions(siv: &mut Cursive, db: Arc<Mutex<Database>>, trade: Trade)
                     let res = db
                         .lock()
                         .expect("Failed to lock database")
-                        .assign_option(id, status.clone());
+                        .assign_option(id, status);
                     match res {
                         Ok(_) => {
                             s.pop_layer();
@@ -663,7 +654,7 @@ fn format_trade_row(trade: &Trade, today: &str) -> String {
             .map(|s| format!("${:.2}", s))
             .unwrap_or_else(|| "?".to_string());
         let expiration = trade.expiration.clone().unwrap_or_default();
-        let status = trade.status.as_ref().map(|s| s.as_str()).unwrap_or("open");
+        let status = trade.status.map(|s| s.as_str()).unwrap_or("open");
         // DTE is only meaningful for an open option; resolved statuses
         // (closed/assigned/exercised/expired) shouldn't show a countdown.
         let dte = if status == "open" {
@@ -896,6 +887,44 @@ mod tests {
         assert_eq!(format_position(dec!(0.0)), "flat");
         assert_eq!(format_position(dec!(100.0)), "long 100");
         assert_eq!(format_position(dec!(-200.0)), "short 200");
+    }
+
+    #[test]
+    fn selected_index_covers_enum_variants_and_falls_back_to_zero() {
+        for (index, value) in TradeType::variants().iter().enumerate() {
+            assert_eq!(selected_index(TradeType::variants(), value), index);
+        }
+        for (index, value) in Action::variants().iter().enumerate() {
+            assert_eq!(selected_index(Action::variants(), value), index);
+        }
+        for (index, value) in OptionType::variants().iter().enumerate() {
+            assert_eq!(selected_index(OptionType::variants(), value), index);
+        }
+
+        assert_eq!(
+            selected_index(&TradeType::variants()[..1], &TradeType::Option),
+            0
+        );
+        assert_eq!(
+            selected_index(&Action::variants()[..1], &Action::SellToOpen),
+            0
+        );
+        assert_eq!(
+            selected_index(&OptionType::variants()[..1], &OptionType::Put),
+            0
+        );
+    }
+
+    #[test]
+    fn selected_index_handles_option_type_choices() {
+        let choices = std::iter::once(None)
+            .chain(OptionType::variants().iter().copied().map(Some))
+            .collect::<Vec<Option<OptionType>>>();
+
+        assert_eq!(selected_index(&choices, &None), 0);
+        for (index, choice) in choices.iter().enumerate().skip(1) {
+            assert_eq!(selected_index(&choices, choice), index);
+        }
     }
 
     #[test]

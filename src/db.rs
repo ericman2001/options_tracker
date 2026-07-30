@@ -65,7 +65,7 @@ string_enum! {
     /// Lifecycle of an option position. `Assigned` and `Exercised` are treated
     /// identically for position math (both trigger the compound stock event);
     /// `Closed` and `Expired` produce no linked stock row.
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum OptionStatus {
         Open => "open",
         Closed => "closed",
@@ -309,7 +309,7 @@ impl Database {
             // changed away from Option.
             self.delete_linked_stock_rows(id)?;
             if trade.trade_type == TradeType::Option {
-                if let Some(status) = trade.status.clone() {
+                if let Some(status) = trade.status {
                     if status.triggers_stock_event() {
                         self.insert_linked_stock_row(trade, &status)?;
                     }

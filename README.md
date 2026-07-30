@@ -80,7 +80,7 @@ cargo run --release
 
 The application uses an intuitive dialog-based interface:
 - **Main Menu**: Use arrow keys (↑/↓) to navigate, Enter to select
-- **Forms**: Use Tab to move between fields, type to edit text fields, and use the dropdown selectors (Type, Action, Option Type) via Enter/arrow keys or the mouse; click buttons or use keyboard shortcuts
+- **Forms**: Use Tab to move between fields, type to edit text fields, and use the dropdown selectors (Type, Action, Option Type) via Enter or the mouse; use Tab and Enter to activate buttons
 - **Lists**: Use arrow keys to navigate, Enter to select items
 
 ### Adding a Trade
@@ -98,7 +98,7 @@ The application uses an intuitive dialog-based interface:
    - **Option Type / Strike / Expiration**: shown only when Type is `option`
      (Option Type is a `call`/`put` dropdown)
    - **Comment**: Optional notes
-3. Click "Save" or press the keyboard shortcut to save
+3. Click "Save" or Tab to it and press Enter
 
 Dropdowns (Type, Action, Option Type) open on Enter or a mouse click; pick a
 value with the arrow keys + Enter or by clicking it. Selecting `stock` hides the
